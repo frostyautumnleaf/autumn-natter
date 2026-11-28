@@ -48,7 +48,7 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Propose one or more files of the working directory to the user, so the user can take each of them with the button of a block in the chat. Use it when the work left a file the user requested: a page, a document, an image, an archive of the work. Call it at the end of the answer, once the work is done. The blocks are placed BELOW your answer, at the bottom: they are never above it, and never remain while it is still being written. So never tell the user the files are above them - say the files are below, or say only that they are proposed. The block shows the type of the file, its name without the extension, the extension under the name, and the button. A file that is not there, or that is bigger than 64 MiB, is answered and no block means it.",
+                "Offer up to eight existing files from this chat's working directory for download. Use after completing the work when the user requested those files or agreed when asked. Blocks appear below the final answer. Missing files and files over 64 MiB are skipped and reported.",
             )),
             "parameters": {
                 "type": "object",
@@ -56,15 +56,15 @@ pub fn definition() -> Value {
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "The files to offer to the user. Every name is relative to the working directory of the chat, for example 'page.html' or 'reports/summary.md'. One name is enough; up to eight are taken."
+                        "description": "Required file paths, relative to this chat's working directory. Up to eight; use one item for one file."
                     },
                     "path": {
                         "type": "string",
-                        "description": "One file to propose, when there is only one and no array is given."
+                        "description": "Optional additional file path."
                     },
                     "note": {
                         "type": "string",
-                        "description": "A short line for the blocks, in the text of the chat, such as 'The page you asked for'. It is shown above them. Nothing is put there when it is left out."
+                        "description": "Optional short label shown above the offered files."
                     }
                 },
                 "required": ["paths"]

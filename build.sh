@@ -3,7 +3,7 @@
 # Autumn Natter - build script.
 #
 # Installs the Rust toolchain into this checkout (if needed) and builds the
-# program. Nothing is written outside this directory, and nothing needs sudo.
+# program. In a Linux Wayland session, installs missing workspace utilities system-wide.
 #
 #   ./build.sh              build the release binary
 #   ./build.sh --fast       build without LTO (much faster, larger binary)
@@ -46,8 +46,71 @@ Toolchain flags
     -h, --help                 this text
 
 The first run downloads a Rust toolchain and every crate, so it needs a network
-connection. Expect ./.local to reach about 4 GB once built.
+connection. Builds in a Linux Wayland session also install missing sway and
+grim (may use sudo).
+Expect ./.local to reach about 4 GB once built.
 HELP
+}
+
+is_wayland_session() {
+  local session_type="${XDG_SESSION_TYPE:-}"
+  case "${session_type,,}" in
+    wayland) return 0 ;;
+    x11) return 1 ;;
+  esac
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    return 0
+  fi
+  # A shell can lose the display variables. Check its own session when logind is available.
+  if [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1; then
+    session_type="$(loginctl show-session "$XDG_SESSION_ID" --property=Type --value 2>/dev/null)" || return 1
+    [ "$session_type" = wayland ]
+  else
+    return 1
+  fi
+}
+
+install_workspace_tools() {
+  local program
+  local -a missing=() as_root=()
+  for program in sway grim; do
+    if ! command -v "$program" >/dev/null 2>&1; then
+      missing+=("$program")
+    fi
+  done
+  if [ "${#missing[@]}" = 0 ]; then
+    return
+  fi
+  if [ "$OFFLINE" = 1 ]; then
+    warn "Private workspace needs ${missing[*]}. Skipping installation for --offline."
+    return
+  fi
+  if [ "$EUID" != 0 ]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+      warn "Install ${missing[*]} to use Private workspace. sudo is unavailable."
+      return
+    fi
+    as_root=(sudo)
+  fi
+
+  step "Installing Wayland workspace tools: ${missing[*]}"
+  if command -v apt-get >/dev/null 2>&1; then
+    if "${as_root[@]}" apt-get update && "${as_root[@]}" apt-get install -y "${missing[@]}"; then
+      return
+    fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if "${as_root[@]}" dnf install -y "${missing[@]}"; then
+      return
+    fi
+  elif command -v pacman >/dev/null 2>&1; then
+    if "${as_root[@]}" pacman -S --needed --noconfirm "${missing[@]}"; then
+      return
+    fi
+  else
+    warn "Install ${missing[*]} to use Private workspace. No supported package manager was found."
+    return
+  fi
+  warn "Could not install ${missing[*]}. The build will continue. Install them to use Private workspace."
 }
 
 # ---------------------------------------------------------------- args
@@ -147,6 +210,9 @@ if [ "$OS" = Linux ]; then
     say "    Debian/Ubuntu:  sudo apt install libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config"
     say "    Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config"
     say "    Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg"
+  fi
+  if [ "$MODE" = build ] && is_wayland_session; then
+    install_workspace_tools
   fi
 fi
 

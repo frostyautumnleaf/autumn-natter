@@ -18,6 +18,7 @@
 use serde_json::{json, Value};
 use std::io::Read;
 use std::time::Duration;
+use url::Url;
 
 use crate::tools::{self, with_rule};
 
@@ -27,6 +28,7 @@ pub const NAME: &str = "web_search";
 // The most bytes of one page that are read. A page of a news house may hold three times this in
 // the markers of its header alone, and none of those markers are text.
 const MAX_FETCH_BYTES: usize = 512 * 1024;
+const MAX_BROWSER_FETCH_BYTES: usize = 1024 * 1024;
 
 // The most text of a page, or of a whole answer, that reach the model. The size of the context
 // is small, and the start of a page holds the best of it.
@@ -73,18 +75,18 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Search the web, and read a page of it. With text to search for it returns the titles, the addresses and the short summaries of the results. With an address it reads that page and returns its text, so use the address of a result you want instead of guessing at it. The answer of a search engine is a short summary only, so a second call with the address of the page is often the better part of the work. Nothing that is read is stored.",
+                "Search the web with `query` for ranked results and short summaries. To inspect a result, call again with its returned `url`; do not guess addresses. Page text is truncated, and nothing read is stored.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "The text to search for."
+                        "description": "Search terms or a question."
                     },
                     "url": {
                         "type": "string",
-                        "description": "The address of a page to read, instead of searching."
+                        "description": "Returned page URL to read instead of searching."
                     }
                 },
                 "required": []
@@ -404,27 +406,137 @@ fn wiki_places(page: &str) -> Vec<Place> {
 // Get one address, and read what returns. The bytes are stopped at the cap, so a page that goes
 // on for ever does not hold the program.
 fn fetch(address: &str) -> Result<String, String> {
+    fetch_document(address, MAX_FETCH_BYTES).map(|(_, page)| page)
+}
+
+// Fetch one bounded public page and retain the final address after checked redirects. Browser
+// previews use the same reader as search, so their navigation cannot bypass its URL checks.
+fn fetch_document(address: &str, limit: usize) -> Result<(String, String), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(8))
         .timeout_read(Duration::from_secs(20))
-        .redirects(5)
+        .redirects(0)
         .build();
-    let made = agent
-        .get(address)
-        .set("user-agent", AGENT)
-        .set("accept-language", "en")
-        .call();
-    let response = match made {
-        Ok(response) => response,
-        Err(problem) => return Err(first_words(&problem.to_string(), 200)),
-    };
-    let mut bytes: Vec<u8> = Vec::new();
-    let mut stream = response.into_reader();
-    let _ = stream
-        .by_ref()
-        .take(MAX_FETCH_BYTES as u64)
-        .read_to_end(&mut bytes);
-    Ok(String::from_utf8_lossy(&bytes).to_string())
+    let mut current = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    for _ in 0..=5 {
+        validate_public_url(&current)?;
+        let response = agent.get(current.as_str())
+            .set("user-agent", AGENT)
+            .set("accept-language", "en")
+            .call()
+            .map_err(|problem| first_words(&problem.to_string(), 200))?;
+        if (300..400).contains(&response.status()) {
+            let location = response.header("Location").ok_or_else(|| String::from("redirect had no destination"))?;
+            current = current.join(location).map_err(|_| String::from("redirect destination was invalid"))?;
+            continue;
+        }
+        let mut bytes: Vec<u8> = Vec::new();
+        response.into_reader().take(limit as u64).read_to_end(&mut bytes)
+            .map_err(|problem| format!("The page could not be read: {problem}"))?;
+        return Ok((current.to_string(), String::from_utf8_lossy(&bytes).to_string()));
+    }
+    Err(String::from("the page redirected too many times"))
+}
+
+// Never let a page reader reach the local machine or private network, including after redirects.
+fn validate_public_url(url: &Url) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+    if !matches!(url.scheme(), "http" | "https") || !url.username().is_empty() || url.password().is_some() {
+        return Err(String::from("only public http and https addresses can be opened"));
+    }
+    let host = url.host_str().ok_or_else(|| String::from("the address has no host"))?;
+    let low = host.trim_end_matches('.').to_ascii_lowercase();
+    if low == "localhost" || low.ends_with(".localhost") || low.ends_with(".local")
+        || low == "metadata.google.internal" || low.ends_with(".internal") {
+        return Err(String::from("local network addresses are not available to web tools"));
+    }
+    let port = url.port_or_known_default().ok_or_else(|| String::from("the address has no port"))?;
+    let addresses = (host, port).to_socket_addrs().map_err(|_| String::from("the host could not be resolved"))?;
+    let mut found = false;
+    for address in addresses {
+        found = true;
+        if !public_ip(address.ip()) {
+            return Err(String::from(
+                "local network addresses are not available to web tools",
+            ));
+        }
+    }
+    if !found { return Err(String::from("the host has no public address")); }
+    Ok(())
+}
+
+/// Whether an address is globally routable enough for a browser or page-reader request.
+pub fn public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let [a, b, c, _] = ip.octets();
+            !ip.is_private()
+                && !ip.is_loopback()
+                && !ip.is_link_local()
+                && !ip.is_broadcast()
+                && !ip.is_unspecified()
+                && !ip.is_multicast()
+                && a != 0
+                && a < 224
+                && !(a == 100 && (64..=127).contains(&b))
+                && !(a == 192 && b == 0 && c == 0)
+                && !(a == 192 && b == 0 && c == 2)
+                && !(a == 192 && b == 88 && c == 99)
+                && !(a == 198 && (b == 18 || b == 19 || b == 51 && c == 100))
+                && !(a == 203 && b == 0 && c == 113)
+        }
+        std::net::IpAddr::V6(ip) => {
+            let segments = ip.segments();
+            let globally_routed = (segments[0] & 0xe000) == 0x2000;
+            globally_routed
+                && !ip.is_multicast()
+                && !ip.is_loopback()
+                && !ip.is_unspecified()
+                && !ip.is_unique_local()
+                && !ip.is_unicast_link_local()
+                && ip.to_ipv4_mapped().is_none()
+                // Special-purpose 2001::/23 assignments and the 6to4 and documentation ranges.
+                && !(segments[0] == 0x2001 && segments[1] <= 0x01ff)
+                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
+                && segments[0] != 0x2002
+                && !(segments[0] == 0x3fff && segments[1] <= 0x0fff)
+        }
+    }
+}
+
+// The native browser shares the page reader's public-address rule for top-level navigation.
+pub fn validate_public_browser_url(address: &str) -> Result<Url, String> {
+    let url = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    validate_public_url(&url)?;
+    Ok(url)
+}
+
+/// Parse a browser navigation without resolving DNS on the GUI thread. Actual requests still go
+/// through the checked browser proxy, which resolves the host and rejects private destinations.
+pub fn parse_public_browser_url(address: &str) -> Result<Url, String> {
+    let url = Url::parse(address).map_err(|_| String::from("invalid URL"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(String::from("only public http and https addresses can be opened"));
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| String::from("the address has no host"))?;
+    let low = host.trim_end_matches('.').to_ascii_lowercase();
+    if low == "localhost"
+        || low.ends_with(".localhost")
+        || low.ends_with(".local")
+        || low == "metadata.google.internal"
+        || low.ends_with(".internal")
+    {
+        return Err(String::from("local network addresses are not available to web tools"));
+    }
+    if matches!(url.host(), Some(url::Host::Ipv4(_) | url::Host::Ipv6(_))) {
+        validate_public_url(&url)?;
+    }
+    Ok(url)
 }
 
 // The text of a page of markers. The parts that hold no text for a user are dropped whole: the
@@ -461,6 +573,37 @@ fn to_words(page: &str) -> String {
         out.push_str(&decode(rest));
     }
     tidy_words(&out)
+}
+
+// A browser snapshot of a page and the links the model may choose to follow.
+pub(crate) fn browser_read(address: &str) -> Result<(String, String, Vec<(String, String)>, String), String> {
+    let (final_url, page) = fetch_document(address, MAX_BROWSER_FETCH_BYTES)?;
+    let mut links = Vec::new();
+    let mut from = 0usize;
+    while links.len() < 30 {
+        let Some(open) = find_ignore(&page[from..], "<a") else { break };
+        let start = from + open;
+        let Some(end) = mark_end(&page[start..]) else { break };
+        let tag = &page[start..start + end + 1];
+        let Some(href_at) = find_ignore(tag, "href") else { from = start + end + 1; continue };
+        let after = tag.get(href_at + 4..).unwrap_or("").trim_start();
+        let Some(after) = after.strip_prefix('=') else { from = start + end + 1; continue };
+        let value = after.trim_start();
+        let raw = if let Some(rest) = value.strip_prefix('"') { rest.split('"').next().unwrap_or("") }
+            else if let Some(rest) = value.strip_prefix('\'') { rest.split('\'').next().unwrap_or("") }
+            else { value.split_whitespace().next().unwrap_or("").trim_end_matches('>') };
+        if raw.is_empty() || raw.starts_with('#') || raw.starts_with("javascript:") { from = start + end + 1; continue; }
+        let label_start = start + end + 1;
+        let label = find_ignore(&page[label_start..], "</a").map(|n| &page[label_start..label_start + n]).unwrap_or("");
+        let label = first_words(&to_words(label), 160);
+        if let Ok(base) = Url::parse(&final_url) {
+            if let Ok(target) = base.join(raw) {
+                links.push((if label.is_empty() { target.as_str().to_string() } else { label }, target.to_string()));
+            }
+        }
+        from = start + end + 1;
+    }
+    Ok((final_url, to_words(&page), links, page))
 }
 
 // The parts of a page that hold nothing a user would want to read, with the marker that closes
@@ -502,7 +645,175 @@ fn dropped(page: &str, at: usize) -> Option<&str> {
         };
         return rest.get(end + close.len()..);
     }
-    None
+    drop_hidden_element(page, at)
+}
+
+// Hidden fallback markup is not part of the page a user sees. Pages such as GitHub's login
+// page put a generic fragment-load error inside a hidden element, then replace that fragment
+// in the browser. The fallback can also become visible when only that fragment fails, even
+// though the rest of the page loaded successfully.
+fn drop_hidden_element(page: &str, at: usize) -> Option<&str> {
+    let head = page.get(at..)?;
+    let end = mark_end(head)?;
+    let opening = head.get(..=end)?;
+    let (name, closing, self_closing) = html_tag(opening)?;
+    let hidden = has_html_attribute(opening, "hidden");
+    let fallback = has_html_attribute(opening, "data-show-on-forbidden-error");
+    if closing || !(hidden || fallback) {
+        return None;
+    }
+    if self_closing || is_void_element(name) {
+        return head.get(end + 1..);
+    }
+
+    let mut depth = 1usize;
+    let mut offset = end + 1;
+    while let Some(rest) = page.get(at + offset..) {
+        let Some(next) = rest.find('<') else {
+            return Some("");
+        };
+        let start = offset + next;
+        let marker = page.get(at + start..)?;
+        let Some(marker_end) = mark_end(marker) else {
+            return Some("");
+        };
+        let Some(tag) = marker.get(..=marker_end) else {
+            return Some("");
+        };
+        if let Some((found, is_closing, is_self_closing)) = html_tag(tag) {
+            if found.eq_ignore_ascii_case(name) {
+                if is_closing {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return page.get(at + start + marker_end + 1..);
+                    }
+                } else if !is_self_closing && !is_void_element(found) {
+                    depth += 1;
+                }
+            }
+        }
+        offset = start + marker_end + 1;
+    }
+    Some("")
+}
+
+fn html_tag(tag: &str) -> Option<(&str, bool, bool)> {
+    let end = mark_end(tag)?;
+    let mut at = 1usize;
+    let closing = tag.as_bytes().get(at) == Some(&b'/');
+    if closing {
+        at += 1;
+    }
+    while tag
+        .as_bytes()
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_whitespace())
+    {
+        at += 1;
+    }
+    let start = at;
+    while tag.as_bytes().get(at).is_some_and(|byte| {
+        !byte.is_ascii_whitespace() && *byte != b'/' && *byte != b'>'
+    }) {
+        at += 1;
+    }
+    let name = tag.get(start..at)?;
+    if name.is_empty() {
+        return None;
+    }
+    let self_closing = !closing && tag.get(..end)?.trim_end().ends_with('/');
+    Some((name, closing, self_closing))
+}
+
+fn has_html_attribute(opening: &str, wanted: &str) -> bool {
+    let Some(end) = mark_end(opening) else {
+        return false;
+    };
+    let Some((_, closing, _)) = html_tag(opening) else {
+        return false;
+    };
+    if closing {
+        return false;
+    }
+    let bytes = opening.as_bytes();
+    let mut at = 1usize;
+    while bytes
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b'/')
+    {
+        at += 1;
+    }
+    while bytes.get(at).is_some_and(|byte| {
+        !byte.is_ascii_whitespace() && *byte != b'/' && *byte != b'>'
+    }) {
+        at += 1;
+    }
+    while at < end {
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b'/')
+        {
+            at += 1;
+        }
+        let start = at;
+        while bytes.get(at).is_some_and(|byte| {
+            !byte.is_ascii_whitespace() && *byte != b'=' && *byte != b'/' && *byte != b'>'
+        }) {
+            at += 1;
+        }
+        if at == start {
+            at += 1;
+            continue;
+        }
+        if opening.get(start..at).is_some_and(|name| name.eq_ignore_ascii_case(wanted)) {
+            return true;
+        }
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            at += 1;
+        }
+        if bytes.get(at) == Some(&b'=') {
+            at += 1;
+            while bytes
+                .get(at)
+                .is_some_and(|byte| byte.is_ascii_whitespace())
+            {
+                at += 1;
+            }
+            if bytes
+                .get(at)
+                .is_some_and(|byte| *byte == b'\'' || *byte == b'"')
+            {
+                let quote = bytes[at];
+                at += 1;
+                while at < end && bytes.get(at) != Some(&quote) {
+                    at += 1;
+                }
+                if at < end {
+                    at += 1;
+                }
+            } else {
+                while bytes
+                    .get(at)
+                    .is_some_and(|byte| !byte.is_ascii_whitespace() && *byte != b'>')
+                {
+                    at += 1;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_void_element(name: &str) -> bool {
+    [
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "param", "source", "track", "wbr",
+    ]
+        .iter()
+        .any(|void| name.eq_ignore_ascii_case(void))
 }
 
 // The markers that end a block of text, and the markers that open a part of a list.
@@ -797,6 +1108,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn browser_navigation_only_accepts_public_http_addresses() {
+        assert_eq!(
+            parse_public_browser_url("https://example.org/path?q=one")
+                .unwrap()
+                .as_str(),
+            "https://example.org/path?q=one"
+        );
+        for address in [
+            "file:///etc/passwd",
+            "ftp://example.org/",
+            "http://localhost/",
+            "http://service.local/",
+            "http://127.0.0.1/",
+            "http://192.168.1.1/",
+            "http://[::1]/",
+            "https://user:secret@example.org/",
+        ] {
+            assert!(parse_public_browser_url(address).is_err(), "{address}");
+        }
+        assert!(public_ip("2001:4860:4860::8888".parse().unwrap()));
+        assert!(!public_ip("64:ff9b::c0a8:101".parse().unwrap()));
+        assert!(!public_ip("2001:db8::1".parse().unwrap()));
+        assert!(!public_ip("192.0.0.1".parse().unwrap()));
+    }
+
+    #[test]
     fn the_call_needs_one_of_the_two_things() {
         let out = run("{}");
         assert!(!out.ok);
@@ -867,6 +1204,23 @@ mod tests {
         assert_eq!(to_words(cut), "words");
         let house = "<nav><a>menu</a></nav><p>the words</p><aside>the side</aside><footer>the foot</footer>";
         assert_eq!(to_words(house), "the words");
+    }
+
+    #[test]
+    fn github_login_fragment_fallback_is_not_page_text() {
+        let page = concat!(
+            "<main><h1>Sign in to GitHub</h1>",
+            "<include-fragment data-target=\"webauthn-status.fragment\">",
+            "<div data-show-on-forbidden-error hidden><h3>Uh oh!</h3>",
+            "<p>There was an error while loading. ",
+            "<a aria-label=\"Please reload this page\">Please reload this page</a>.</p>",
+            "</div></include-fragment></main>"
+        );
+
+        let text = to_words(page);
+        assert!(text.contains("Sign in to GitHub"), "{text}");
+        assert!(!text.contains("There was an error while loading"), "{text}");
+        assert!(!text.contains("Please reload this page"), "{text}");
     }
 
     // A marker of a page may carry the sign that seems to close it in the text of a part of its

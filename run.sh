@@ -1,13 +1,13 @@
-# !/usr/bin/env bash
+#!/usr/bin/env bash
 #
 # Autumn Natter - build and run in one command.
 #
-# Calls build.sh to set up the toolchain and build the program, then runs it. Nothing is written
-# outside this directory, and nothing needs sudo.
+# Calls build.sh to set up the toolchain and build the program, then runs it.
 #
 # git clone https://github.com/frostyautumnleaf/autumn-natter cd autumn-natter ./run.sh
 #
-# Everything it installs lives in ./.local . Delete that folder to undo it all.
+# The toolchain and build output live in ./.local. In a Linux Wayland session, the build script
+# installs missing workspace utilities system-wide.
 #
 # Run ./run.sh --help for the flags.
 
@@ -116,10 +116,10 @@ if [ "$WITH_LLAMA" = 1 ]; then
   cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" -DCMAKE_BUILD_TYPE=Release -DGGML_CCACHE=OFF >/dev/null \
     || die "cmake configure failed"
   cmake --build "$LLAMA_SRC/build" -j "$(nproc 2>/dev/null || sysctl -n hw.ncpu)" \
-    --target llama-server >/dev/null \
+    --target llama-server llama-tokenize >/dev/null \
     || die "llama-server build failed. Build llama.cpp yourself and pass --llama-dir."
   LLAMA_DIR="$LLAMA_SRC/build/bin"
-  ok "built: $LLAMA_DIR/llama-server"
+  ok "built llama-server and llama-tokenize in $LLAMA_DIR"
 fi
 
 if [ -z "$LLAMA_DIR" ]; then

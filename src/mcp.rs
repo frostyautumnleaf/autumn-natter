@@ -380,7 +380,7 @@ impl Tool {
     pub fn definition(&self, server: &Server) -> Value {
         let mut said = String::new();
         said.push_str(&format!(
-            "[{}] This tool comes from a server of the user's own, reached over MCP ({}). ",
+            "[{} via MCP at {}] ",
             server.name,
             server.where_from()
         ));

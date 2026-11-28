@@ -324,7 +324,7 @@ fn count_of(text: &str, needle: &str) -> usize {
 // empty text to find adds the words at the end of the part, which is how the content of a task is
 // written out in pieces. A name or a summary is never left without a word in it, for a task is not
 // made without them.
-pub fn edit(work: &str, index: &str, field: &str, edits: &[Change]) -> Result<Task, String> {
+fn edit(work: &str, index: &str, field: &str, edits: &[Change]) -> Result<Task, String> {
     let found = lookup(work, index)?;
     let held = part_of(&found, field)?;
     let said = column_of(field).ok_or_else(|| format!("\"{field}\" has no place in the list"))?;
@@ -746,13 +746,13 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": CREATE_NAME,
-                "description": "Create a task in the task list of this working directory, and remember its index. Use it when the work has parts that cannot be done at once, or that have to be returned to later. All three parts are required: the name is the short text the list shows, the summary is one sentence about what the task is for, and the content is everything that has to be done, in enough detail that you could do it from the content alone. The answer reports the index of the task: it is a UUID, and every other tool of this suite takes it.",
+                "description": "Create a persistent task for work that spans steps or turns. Provide a short name, a one-sentence summary, and self-contained instructions. The result returns a UUID used by the other task tools.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "name": { "type": "string", "description": "The name of the task, in a few words." },
-                        "summary": { "type": "string", "description": "One sentence: what the task is for." },
-                        "content": { "type": "string", "description": "All of what is to be done, in detail." }
+                        "name": { "type": "string", "description": "Short task name." },
+                        "summary": { "type": "string", "description": "One-sentence purpose." },
+                        "content": { "type": "string", "description": "Complete, actionable instructions." }
                     },
                     "required": ["name", "summary", "content"]
                 }
@@ -762,7 +762,7 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": VIEW_ALL_NAME,
-                "description": "List every task of this working directory, with the index, the state, the name and the summary of each. Nothing is requested. The contents of the tasks are not returned: call view_task with the index of a task for its contents. Call this before you write your final message, to check that every task that is left open is dealt with.",
+                "description": "List tasks for this working directory with their UUIDs, status, names and summaries. Contents are omitted; use view_task to read one. Check this before your final answer and resolve or report open tasks.",
                 "parameters": { "type": "object", "properties": {} }
             }
         }),
@@ -770,11 +770,11 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": VIEW_ONE_NAME,
-                "description": "View one task: its name, its summary and its content. Give the whole index, or the start of it when that identifies one task and no other.",
+                "description": "Read one task's name, summary and full instructions. Provide its UUID or a unique UUID prefix.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task, as create_task returned it." }
+                        "index": { "type": "string", "description": "Task UUID returned by create_task, or a unique prefix." }
                     },
                     "required": ["index"]
                 }
@@ -784,21 +784,21 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": EDIT_NAME,
-                "description": "Change the name, the summary or the content of one task by matching the text that is to be changed. Say which part of the task is changed under `field`, and give the changes under `edits`. Copy each old_string exactly from the task as view_task returned it, spacing included. The changes are made one after another, each against the part as the change before it left it. Each old_string must match one place, unless replace_all is set for it; if one matches no place, or more than one, nothing at all is written. An old_string that is empty adds the words of new_string at the end of the part. A name or a summary is never left with nothing in it. To add to the content without writing it again, use append_task.",
+                "description": "Edit one task's name, summary or content. Read it first and copy exact old_string text. Edits apply in order; each match must be unique unless replace_all is true. An empty old_string appends text. Use append_task to add only to content.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task, or the start of it when that identifies one task and no other." },
-                        "field": { "type": "string", "enum": ["name", "summary", "content"], "description": "Which part of the task the changes are made in." },
+                        "index": { "type": "string", "description": "Task UUID or a unique prefix." },
+                        "field": { "type": "string", "enum": ["name", "summary", "content"], "description": "Task field to edit." },
                         "edits": {
                             "type": "array",
-                            "description": "The changes to make in one call, each giving the text to replace and the text to put in its place.",
+                            "description": "Ordered exact-text replacements.",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "old_string": { "type": "string", "description": "The text to replace, copied from the task. Empty means: add the words of new_string at the end of the part." },
-                                    "new_string": { "type": "string", "description": "The text to put in its place." },
-                                    "replace_all": { "type": "boolean", "description": "Replace every place this text appears, instead of requiring that it appears once. Off when it is not given." }
+                                    "old_string": { "type": "string", "description": "Exact text to replace; empty appends new_string." },
+                                    "new_string": { "type": "string", "description": "Replacement or appended text." },
+                                    "replace_all": { "type": "boolean", "description": "Replace every match; defaults to false." }
                                 },
                                 "required": ["old_string", "new_string"]
                             }
@@ -812,12 +812,12 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": APPEND_NAME,
-                "description": "Add to the content of one task, without writing the whole of it again. The words you give go under the content that stands, with an empty line between the two. Use it when a task gains a further requirement, or when the content is written out in pieces. Only the content is changed: the name, the summary and the status stay as they were, and view_task returns the content as it now is.",
+                "description": "Append to a task's content without writing the whole of it again. The new text is separated by a blank line; other fields stay unchanged.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task, or the start of it when that identifies one task and no other." },
-                        "content": { "type": "string", "description": "The words to add to the content of the task." }
+                        "index": { "type": "string", "description": "Task UUID or a unique prefix." },
+                        "content": { "type": "string", "description": "Text to append." }
                     },
                     "required": ["index", "content"]
                 }
@@ -827,11 +827,11 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": COMPLETE_NAME,
-                "description": "Set the status of one task to completed. Call it when the work of the task is really done, and not because the answer is coming to an end.",
+                "description": "Mark a task complete only after its work is finished, not merely because the response is ending.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task." }
+                        "index": { "type": "string", "description": "Task UUID or a unique prefix." }
                     },
                     "required": ["index"]
                 }
@@ -841,11 +841,11 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": CANCEL_NAME,
-                "description": "Set the status of one task to cancelled, leaving it in the list. Only use this when the user has requested the task to be cancelled. Never cancel a task on your own initiative, and never to clear a list that has grown long.",
+                "description": "Cancel a task but keep it listed. Only use this when the user has requested cancellation; never cancel one on your own initiative.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task." }
+                        "index": { "type": "string", "description": "Task UUID or a unique prefix." }
                     },
                     "required": ["index"]
                 }
@@ -855,11 +855,11 @@ pub fn definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": DELETE_NAME,
-                "description": "Delete one task from the list. Only use this when the user has requested the task to be deleted. A task that is no longer wanted is cancelled and stays in the list to be read; deleting is the user's decision, not yours.",
+                "description": "Delete a task permanently. Only use this when the user has requested deletion; otherwise keep it or cancel it only at the user's request.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "index": { "type": "string", "description": "The index of the task." }
+                        "index": { "type": "string", "description": "Task UUID or a unique prefix." }
                     },
                     "required": ["index"]
                 }
@@ -874,11 +874,10 @@ pub fn definitions() -> Vec<Value> {
 pub fn system_prompt() -> String {
     String::from(
         "TASKS SUITE\n\n\
-You have a list of tasks for the working directory of this chat, and eight tools that work on it: create_task, view_tasks, view_task, edit_task, append_task, complete_task, cancel_task and delete_task. The tasks belong to the working directory, not to this chat, and they stand there after this chat ends. Every task has an index - a UUID, which create_task gives out - and the other seven tools are pointed at a task by that index.\n\n\
-Make a task when the work has parts that cannot be done at once, or that have to be gone back to later. Write the content of a task so that it can be done from the content alone. Set a task to completed with complete_task when its work is really done.\n\n\
-When a task turns out to ask for something different, or for more than it did, change it rather than make a second task about the same work: edit_task changes its name, its summary or its content by matching the text to change, and append_task adds to the content without writing the whole of it again. Read the task with view_task before you change it, and copy the text you are matching from what it returned.\n\n\
-cancel_task and delete_task are for the user alone. Use either of them only when the user has asked for that task to be cancelled or deleted. A task you no longer want is left in the list, or cancelled only if the user asked.\n\n\
-Before you write your final message to the user, and so before you end this turn, you must call view_tasks and read the list. Every task that stands open has to be dealt with: finish it, or say in your message why it stands open and what you need from the user to finish it. Never end a turn with a task left open without a word about it.",
+Tasks belong to the working directory, persist across chats, and are identified by the UUID returned from create_task. Use these tools: create_task, view_tasks, view_task, edit_task, append_task, complete_task, cancel_task and delete_task.\n\n\
+Create tasks for work that spans steps or turns. Make each task self-contained. Read it with view_task before editing; use edit_task for exact replacements and append_task to add content. Mark it complete only when finished.\n\n\
+cancel_task and delete_task are for the user alone: use them only when the user explicitly requests cancellation or deletion.\n\n\
+Before you write your final message, call view_tasks and read the list. Resolve every open task or explain why it remains open and what is needed to finish it.",
     )
 }
 

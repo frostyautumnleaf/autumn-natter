@@ -20,11 +20,14 @@ pub fn run(cfg: Config) -> Result<(), String> {
     // the first draw already has the models and the chats.
     let engine = Engine::start(cfg);
 
-    let app = tauri::Builder::default()
-        .manage(engine)
-        .invoke_handler(tauri::generate_handler![
+    let local_commands: Box<tauri::ipc::InvokeHandler<tauri::Wry>> = Box::new(
+        tauri::generate_handler![
             commands::get_state,
+            commands::get_browser_page,
+            commands::browser_window_sync,
+            commands::browser_window_action,
             commands::action,
+            commands::connect_remote,
             commands::get_attachment,
             commands::get_plan,
             commands::get_gift,
@@ -44,7 +47,22 @@ pub fn run(cfg: Config) -> Result<(), String> {
             commands::get_log,
             commands::take_files,
             commands::clipboard_take
-        ])
+        ],
+    );
+    let app = tauri::Builder::default()
+        .manage(engine)
+        .invoke_handler(move |invoke| {
+            // The remote window serves a page from another computer. Its page must use that
+            // program's HTTP API, and must never invoke commands against this computer's engine.
+            if invoke.message.webview().label() != "main" {
+                invoke
+                    .resolver
+                    .reject("Desktop commands are unavailable in the remote window");
+                true
+            } else {
+                local_commands(invoke)
+            }
+        })
         // The window is in the settings file, but it is built here, and the file records it
         // with "create": false. Two items the file cannot hold go with it. The leave below is
         // the leave to read the clipboard of the computer, which the web view of the system
@@ -59,6 +77,8 @@ pub fn run(cfg: Config) -> Result<(), String> {
             let window = tauri::WebviewWindowBuilder::from_config(app.handle(), shape)?
                 .enable_clipboard_access()
                 .build()?;
+            #[cfg(target_os = "linux")]
+            commands::install_browser_overlay(&window)?;
             watch_the_drop(&window);
             Ok(())
         })

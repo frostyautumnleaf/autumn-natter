@@ -1,0 +1,579 @@
+// Exercise per-turn work blocks, cancellation colours and the Corporate response marker.
+// Set AN_CHROME to the local Chromium executable and AN_SHOT_DIR to keep review images.
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const puppeteer = require('puppeteer');
+
+const root = path.resolve(__dirname, '..');
+const shotDir = process.env.AN_SHOT_DIR || '/tmp/autumn-natter-working';
+fs.mkdirSync(shotDir, { recursive: true });
+
+(async () => {
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: process.env.AN_CHROME || undefined,
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1360, height: 900, deviceScaleFactor: 1 });
+    const url = process.env.AN_PAGE_URL || 'http://127.0.0.1:18766/frontend/index.html';
+    await page.goto(url,
+      { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+      window.workMessage = function (id, role, body, extra) {
+        return Object.assign({ id, role, body, when: '12:47', tool: '', tool_name: '',
+          reasoning: '', reasoning_ms: 0, thought_offsets: [], attachments: [], work: [],
+          work_head: '', mono: false, failed: false, cancelled: false }, extra || {});
+      };
+      window.workState = function (messages, corporate, extra) {
+        return Object.assign({ messages, live: '', reasoning: '', reasoning_ms: 0,
+          reasoning_done: false, thought_offsets: [], live_tools: [], live_work: [],
+          live_work_head: '', tool_previews: [], generating: false, running: null,
+          summarising: false, handoffs: [], chat: { id: 'visual-check', title: 'Work blocks' },
+          chatting: { corporate, collapse_thinking: true, grow_thinking: true,
+            tools_in_thinking: true, collapse_tools: true, highlight: true } }, extra || {});
+      };
+      window.drawWorkState = function (state) {
+        document.body.className = 'dark';
+        readChatting(state);
+        drawThread(state);
+      };
+      window.workCheck = function (ok, message) {
+        if (!ok) { throw new Error(message); }
+      };
+    });
+
+    await page.evaluate(() => {
+      const stopped = workMessage('cancelled-tool', 'Tool', 'echo "work"', {
+        reasoning: 'I should inspect the project before answering.\nLet me check the working directory.',
+        reasoning_ms: 5100, tool_name: 'run_terminal', failed: true, cancelled: true,
+        tool: 'The call was cancelled: you stopped the answer while the call was being written, '
+          + 'so the writing stopped and the tool never ran'
+      });
+      const afterStop = workMessage('after-stop', 'Assistant', 'I will continue without running that call.');
+      drawWorkState(workState([
+        workMessage('cancel-user', 'You', 'Check the working directory.'), stopped, afterStop
+      ], false));
+      const thought = el.col.querySelector('.work-turn .turn.bad.t-tool .plain');
+      const toolResult = el.col.querySelector('.work-turn .tool.bad .out');
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--ink-fail)';
+      document.body.appendChild(probe);
+      const failColor = getComputedStyle(probe).color;
+      probe.remove();
+      workCheck(thought && getComputedStyle(thought).color !== failColor,
+        'the cancelled tool warning leaked into the thinking text');
+      workCheck(toolResult && getComputedStyle(toolResult).color === failColor,
+        'the cancelled tool result lost its warning color');
+      const main = el.col.querySelector('.work-turn');
+      workCheck(!main.textContent.includes(afterStop.body)
+        && main.nextElementSibling.textContent.includes(afterStop.body),
+      'the final response remained inside the work block');
+      workCheck(main.classList.contains('shut'), 'the work block should start collapsed');
+      main.querySelector('.work-turn-head').click();
+      workCheck(!main.classList.contains('shut'), 'the work block did not open on click');
+      for (const panel of el.col.querySelectorAll('.work-turn .think.closed')) {
+        panel.querySelector('.thead').click();
+      }
+      for (const tool of el.col.querySelectorAll('.work-turn .tool.closed')) {
+        tool.querySelector('.thead').click();
+      }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-cancel.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const intermediate = workMessage('intermediate', 'Assistant', 'I will inspect the file first.', {
+        reasoning: 'Check the existing contents.', reasoning_ms: 1700
+      });
+      const activity = { id: 'search-result', head: 'Searched the web for rate limits',
+        tool: 'web_search', done: true, failed: false, lines: [], output: 'The rate limit is 20.' };
+      const searched = workMessage('search-result', 'Tool', 'Search results', {
+        tool_name: 'web_search', tool: 'Search results', activity
+      });
+      const final = workMessage('final-answer', 'Assistant', 'The rate limit is 20 requests per minute.', {
+        reasoning: 'The result gives the limit. State it clearly.', reasoning_ms: 900,
+        work: [activity], work_head: 'Searched the web'
+      });
+      drawWorkState(workState([
+        workMessage('turn-user', 'You', 'What is the rate limit?'), intermediate, searched, final
+      ], false));
+      const main = el.col.querySelector('.work-turn');
+      const finalRow = main.nextElementSibling;
+      workCheck(/^Worked for \d+ (?:second|seconds|minute|minutes)(?:, \d+ seconds?)?$/.test(
+        main.querySelector('.work-turn-state').textContent),
+      'a completed turn is not labelled Worked for its duration');
+      workCheck(main.textContent.includes(intermediate.body) && main.textContent.includes(searched.tool),
+        'the work block omitted an intermediate message or tool result');
+      workCheck(!main.textContent.includes(final.body) && finalRow.textContent.includes(final.body),
+        'the final answer is not outside the work block');
+      workCheck(main.querySelector('.think') && main.querySelector('.tool'),
+        'thinking and tool blocks were not retained inside the work block');
+      main.querySelector('.work-turn-head').click();
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-worked.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const prompt = workMessage('final-transition-user', 'You', 'Search and report.');
+      const search = workMessage('final-transition-search', 'Tool', 'Search results', {
+        reasoning: 'I will search for the current information.', reasoning_ms: 900,
+        tool_name: 'web_search', tool: 'The search results are stale.'
+      });
+      const answer = 'The latest release could not be confirmed from these results.';
+      const thought = 'The results are stale, so I will explain the uncertainty.';
+      const state = workState([prompt, search], false, { generating: true,
+        live: answer, reasoning: thought, reasoning_ms: 1600 });
+      state.chat.id = 'visual-final-outside';
+      state.chatting.collapse_thinking = false;
+      state.chatting.collapse_tools = false;
+      drawWorkState(state);
+      const activeMain = el.col.querySelector('.work-turn');
+      if (activeMain.classList.contains('shut')) {
+        activeMain.querySelector('.work-turn-head').click();
+      }
+      workCheck(activeMain.textContent.includes(answer),
+        'the live final response was not visible during generation');
+
+      const completed = workMessage('final-transition-answer', 'Assistant', answer, {
+        reasoning: thought, reasoning_ms: 1600, reasoning_done: true, thought_offsets: [0]
+      });
+      state.messages = [prompt, search, completed];
+      state.generating = false;
+      state.live = '';
+      state.reasoning = '';
+      drawWorkState(state);
+      const main = el.col.querySelector('.work-turn');
+      const finalRow = main.nextElementSibling;
+      workCheck(!main.textContent.includes(answer) && finalRow
+        && finalRow.textContent.includes(answer),
+      'the completed final response remained inside the work block');
+      const finalStyle = finalRow && getComputedStyle(finalRow);
+      const finalBox = finalRow && finalRow.getBoundingClientRect();
+      workCheck(finalRow && finalBox.height > 0 && finalStyle.display !== 'none'
+        && finalStyle.visibility !== 'hidden' && finalStyle.opacity !== '0',
+      'the final answer node is hidden: ' + JSON.stringify(finalRow && {
+        className: finalRow.className, height: finalBox.height,
+        display: finalStyle.display, visibility: finalStyle.visibility, opacity: finalStyle.opacity
+      }));
+      workCheck(el.col.textContent.split(answer).length - 1 === 1,
+        'the completed final response is duplicated in the chat');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-final-outside-worked.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const prompt = workMessage('plain-thinking-user', 'You', 'test');
+      const active = workState([prompt], false, { generating: true,
+        reasoning: 'A short thought.', reasoning_ms: 1000, reasoning_done: false });
+      drawWorkState(active);
+      const liveHead = el.col.querySelector('.think > .thead');
+      workCheck(liveHead.classList.contains('busy'),
+        'a live regular thinking block did not enter its busy state');
+      const completed = workMessage('plain-thinking-done', 'Assistant', 'Online. Ready when you are.', {
+        reasoning: 'A short thought.', reasoning_ms: 1000, reasoning_done: true
+      });
+      drawWorkState(workState([prompt, completed], false));
+      const head = el.col.querySelector('.think > .thead');
+      workCheck(head.querySelector('.cap').textContent === 'Thought for 1 second',
+        'the completed regular thinking block did not report its one-second duration');
+      workCheck(!head.classList.contains('busy')
+        && getComputedStyle(head.querySelector('.bulb')).display !== 'none',
+      'the thinking bulb stayed hidden after the block completed');
+      const work = el.col.querySelector('.work-turn');
+      if (work.classList.contains('shut')) { work.querySelector('.work-turn-head').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-thinking-complete.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const activity = { id: 'live-search-result', head: 'Searched the web for rate limits',
+        tool: 'web_search', done: true, failed: false, lines: [], output: 'The rate limit is 20.' };
+      const liveTool = workMessage('live-search-result', 'Tool', 'Search results', {
+        tool_name: 'web_search', tool: 'Search results', activity
+      });
+      drawWorkState(workState([
+        workMessage('corp-user', 'You', 'Find and explain the rate limit.'), liveTool
+      ], true, { generating: true, live: '', reasoning: '', live_tools: [] }));
+      const card = el.col.querySelector('.work-turn .work');
+      workCheck(/^Working for \d+ (?:second|seconds|minute|minutes)(?:, \d+ seconds?)?$/.test(
+        el.col.querySelector('.work-turn-state').textContent),
+      'an active turn is not labelled Working for its duration');
+      const main = el.col.querySelector('.work-turn');
+      const header = main && main.querySelector('.work-turn-head');
+      const latestActivityIcon = card && card.querySelector('.wmainmark');
+      const turnIcon = header && header.querySelector('.work-turn-mark');
+      workCheck(main.classList.contains('processing'),
+        'the active turn did not show its response-processing icon');
+      workCheck(turnIcon && latestActivityIcon
+        && turnIcon.querySelector('path').getAttribute('d')
+          === latestActivityIcon.querySelector('path').getAttribute('d'),
+      'the Corporate work heading did not show its latest activity icon');
+      workCheck(getComputedStyle(header.querySelector('.brain-paper')).display !== 'none',
+        'the animated brain and paper icon is hidden');
+      workCheck(getComputedStyle(header.querySelector('.work-turn-dots')).display === 'none',
+        'the three dots remained beside the processing icon');
+      workCheck(main.classList.contains('shut'), 'a new work block should start collapsed');
+      header.click();
+    });
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    await page.evaluate(() => {
+      workCheck(/^Working for [1-9]\d* (?:second|seconds|minute|minutes)/.test(
+        el.col.querySelector('.work-turn-state').textContent),
+      'the active duration did not advance while the model was processing a tool result');
+    });
+    await page.screenshot({ path: path.join(shotDir, 'corporate-processing.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const activity = { id: 'corp-search', head: 'Searched the web for rate limits',
+        tool: 'web_search', done: true, failed: false, lines: [], output: 'The rate limit is 20.' };
+      const intermediate = workMessage('corp-progress', 'Assistant', 'I found the current limit.', {
+        reasoning: 'Read the result.', reasoning_ms: 1600
+      });
+      const searched = workMessage('corp-search', 'Tool', 'Search results', {
+        tool_name: 'web_search', tool: 'Search results', activity
+      });
+      const final = workMessage('corp-final', 'Assistant', 'The limit is 20 requests per minute.');
+      drawWorkState(workState([
+        workMessage('corp-work-user', 'You', 'Find the rate limit.'), intermediate, searched, final
+      ], true));
+      const main = el.col.querySelector('.work-turn');
+      const finalRow = main.nextElementSibling;
+      workCheck(main.querySelector('.work-turn-state').textContent.startsWith('Worked for '),
+        'a completed Corporate turn is not labelled Worked for its duration');
+      workCheck(main.textContent.includes(intermediate.body) && main.querySelector('.work'),
+        'the Corporate block omitted intermediate prose or its tool activity');
+      const activityHeads = Array.from(main.querySelectorAll('.work > .whead'));
+      const thoughtHead = activityHeads.find(head => head.querySelector('.wtitle')?.textContent
+        .startsWith('Thought for '));
+      const thoughtIcon = thoughtHead && thoughtHead.querySelector('.wmainmark.bulb');
+      const activityIcons = Array.from(main.querySelectorAll('.work > .whead > .wmainmark'));
+      const latestActivityIcon = activityIcons[activityIcons.length - 1];
+      const turnIcon = main.querySelector('.work-turn-head .work-turn-mark');
+      workCheck(thoughtIcon, 'a Thought for heading omitted the thinking bulb');
+      workCheck(turnIcon && latestActivityIcon
+        && turnIcon.querySelector('path').getAttribute('d')
+          === latestActivityIcon.querySelector('path').getAttribute('d'),
+      'the completed Corporate work heading did not use the latest sub-block icon: '
+        + JSON.stringify({ turn: turnIcon?.querySelector('path')?.getAttribute('d'),
+          latest: latestActivityIcon?.querySelector('path')?.getAttribute('d'),
+          count: activityIcons.length }));
+      workCheck(!main.textContent.includes(final.body) && finalRow.textContent.includes(final.body),
+        'the Corporate final answer remained inside the work block');
+      workCheck(main.classList.contains('shut'), 'a completed Corporate block should start collapsed');
+      main.querySelector('.work-turn-head').click();
+      workCheck(!main.classList.contains('shut'), 'the completed Corporate block did not open on click');
+    });
+    await page.screenshot({ path: path.join(shotDir, 'corporate-worked.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      drawWorkState(workState([
+        workMessage('corp-thinking-user', 'You', 'Think this through first.')
+      ], true, { generating: true, reasoning: 'I am considering the request.',
+        reasoning_ms: 2100, reasoning_done: false }));
+      const main = el.col.querySelector('.work-turn');
+      const mainIcon = main.querySelector('.work-turn-mark');
+      const activityIcon = main.querySelector('.work .wmainmark');
+      workCheck(main.querySelector('.work .wtitle').textContent === 'Thinking',
+        'the synthetic thinking activity was not rendered as Thinking');
+      workCheck(mainIcon?.classList.contains('bulb') && activityIcon?.classList.contains('bulb'),
+        'the active Thinking heading omitted the bulb icon');
+      workCheck(mainIcon.querySelector('path').getAttribute('d')
+        === activityIcon.querySelector('path').getAttribute('d'),
+      'the outer work heading did not inherit the Thinking bulb');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      workCheck(!main.classList.contains('shut'), 'the active Thinking block did not open');
+    });
+    await page.screenshot({ path: path.join(shotDir, 'corporate-thinking.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const tool = workMessage('plain-result', 'Tool', 'Search results', {
+        activity: { id: 'plain-result', head: 'Searched the web', tool: 'web_search',
+          done: true, failed: false, lines: [], output: 'Result' }
+      });
+      drawWorkState(workState([
+        workMessage('plain-result-user', 'You', 'Search in plain mode.'), tool
+      ], false, { generating: true, live: '' }));
+      const main = el.col.querySelector('.work-turn');
+      workCheck(!main.classList.contains('processing')
+        && getComputedStyle(main.querySelector('.brain-paper')).display === 'none',
+      'the Corporate processing icon appeared in plain mode');
+    });
+
+    await page.evaluate(() => {
+      const active = workState([
+        workMessage('active-user', 'You', 'Check and report.'),
+        workMessage('active-tool', 'Tool', 'cargo test', {
+          tool_name: 'run_terminal', tool: '3 tests passed'
+        })
+      ], false, { generating: true, live: 'I am checking the result now.',
+        reasoning: 'The tests passed.', reasoning_ms: 1200, thought_offsets: [0] });
+      drawWorkState(active);
+      window.activeWorkState = active;
+      window.heldWorkNode = el.col.querySelector('.work-turn');
+      workCheck(heldWorkNode.classList.contains('shut'), 'the active work block did not start collapsed');
+      heldWorkNode.querySelector('.work-turn-head').click();
+      workCheck(!heldWorkNode.classList.contains('shut'), 'the work block did not open on click');
+      active.live = 'The result is clear; I will summarize it.';
+      drawWorkState(active);
+      workCheck(el.col.querySelector('.work-turn') === heldWorkNode
+        && !heldWorkNode.classList.contains('shut'),
+      'a streamed update replaced the work block or reset its fold');
+      active.generating = false;
+      active.messages.push(workMessage('active-final', 'Assistant', 'All three tests passed.'));
+      active.live = '';
+      active.reasoning = '';
+      drawWorkState(active);
+      workCheck(el.col.querySelector('.work-turn') === heldWorkNode
+        && !heldWorkNode.classList.contains('shut'),
+      'finishing the turn reset the user’s fold choice');
+      workCheck(heldWorkNode.querySelector('.work-turn-state').textContent.startsWith('Worked for '),
+        'the active block did not change to Worked for its duration');
+      workCheck(!heldWorkNode.textContent.includes('All three tests passed.')
+        && heldWorkNode.nextElementSibling.textContent.includes('All three tests passed.'),
+      'the final message did not move outside the work block');
+      const turns = [workMessage('u1', 'You', 'First question.'),
+        workMessage('a1', 'Assistant', 'An intermediate update.'),
+        workMessage('f1', 'Assistant', 'First final answer.', {
+          reasoning: 'Check the answer.', reasoning_ms: 1100
+        }),
+        workMessage('u2', 'You', 'Second question.'),
+        workMessage('f2', 'Assistant', 'Second final answer.', {
+          reasoning: 'Check the answer.', reasoning_ms: 1200
+        })];
+      drawWorkState(workState(turns, false));
+      workCheck(el.col.querySelectorAll(':scope > .work-turn').length === 2,
+        'each user turn must have its own Working/Worked block');
+      workCheck(Array.from(el.col.querySelectorAll(':scope > .work-turn')).every(node =>
+        node.querySelector('.work-turn-state').textContent.startsWith('Worked for ')),
+      'one completed turn did not retain its own Worked block');
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-two-turns.png'), fullPage: true });
+
+    for (const corporate of [false, true]) {
+      const mode = corporate ? 'corporate' : 'plain';
+      await page.evaluate(mode => {
+        const corporate = mode === 'corporate';
+        const prompt = workMessage('direct-user-' + mode, 'You', 'Say hello.');
+        const live = workState([prompt], corporate, { generating: true,
+          live: 'Online. Ready when you are.' });
+        drawWorkState(live);
+        workCheck(!el.col.querySelector('.work-turn'),
+          'a direct live answer created a Working block in ' + mode + ' mode');
+        workCheck(el.col.textContent.includes(live.live),
+          'a direct live answer was not visible in ' + mode + ' mode');
+        const answer = workMessage('direct-answer-' + mode, 'Assistant', 'Online. Ready when you are.');
+        drawWorkState(workState([prompt, answer], corporate));
+        workCheck(!el.col.querySelector('.work-turn'),
+          'a direct final answer created a Worked block in ' + mode + ' mode');
+        workCheck(el.col.textContent.includes(answer.body),
+          'a direct final answer was not visible in ' + mode + ' mode');
+      }, mode);
+      await page.screenshot({ path: path.join(shotDir, 'direct-answer-' + mode + '.png'), fullPage: true });
+    }
+
+    await page.evaluate(() => {
+      const user = workMessage('order-user', 'You', 'Think, search, think, and search again.');
+      const firstThought = workMessage('order-thought-1', 'Assistant', '', {
+        reasoning: 'First thought.', reasoning_ms: 1200
+      });
+      const firstTool = workMessage('order-tool-1', 'Tool', 'First search result.', {
+        tool_name: 'web_search', tool: 'First search result.'
+      });
+      const secondThought = workMessage('order-thought-2', 'Assistant', '', {
+        reasoning: 'Second thought.', reasoning_ms: 900
+      });
+      const secondTool = workMessage('order-tool-2', 'Tool', 'Second search result.', {
+        tool_name: 'web_search', tool: 'Second search result.'
+      });
+      const active = workState([user, firstThought, firstTool], false, {
+        generating: true, reasoning: 'Second thought.', reasoning_ms: 900
+      });
+      drawWorkState(active);
+      const main = el.col.querySelector('.work-turn');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      const order = () => Array.from(el.col.querySelector('.work-turn .think > .words').children)
+        .filter(node => node.classList.contains('thought') || node.classList.contains('tool'))
+        .map(node => node.classList.contains('thought') ? 'thought' : 'tool');
+      const expected = ['thought', 'tool', 'thought'];
+      workCheck(JSON.stringify(order()) === JSON.stringify(expected),
+        'the first Plain thinking/tool sequence was out of order: ' + JSON.stringify(order()));
+
+      const next = workState([user, firstThought, firstTool, secondThought, secondTool], false, {
+        generating: true, reasoning: 'Third thought.', reasoning_ms: 600
+      });
+      drawWorkState(next);
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'a streamed Plain tool result reordered thoughts and tools: ' + JSON.stringify(order()));
+
+      const thirdThought = workMessage('order-thought-3', 'Assistant', '', {
+        reasoning: 'Third thought.', reasoning_ms: 600
+      });
+      const final = workMessage('order-final', 'Assistant', 'Finished.');
+      drawWorkState(workState([user, firstThought, firstTool, secondThought,
+        secondTool, thirdThought, final], false));
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'finishing Plain mode duplicated or reordered thinking/tool blocks: '
+        + JSON.stringify(order()));
+      const panel = el.col.querySelector('.work-turn .think');
+      if (panel.classList.contains('closed')) { panel.querySelector('.thead').click(); }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-thought-tool-order.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      const user = workMessage('order-off-user', 'You', 'Think and search with separate blocks.');
+      const thought1 = workMessage('order-off-thought-1', 'Assistant', '', {
+        reasoning: 'First thought.', reasoning_ms: 1000
+      });
+      const tool1 = workMessage('order-off-tool-1', 'Tool', 'First result.', {
+        tool_name: 'web_search', tool: 'First result.'
+      });
+      const thought2 = workMessage('order-off-thought-2', 'Assistant', '', {
+        reasoning: 'Second thought.', reasoning_ms: 1000
+      });
+      const tool2 = workMessage('order-off-tool-2', 'Tool', 'Second result.', {
+        tool_name: 'web_search', tool: 'Second result.'
+      });
+      const look = (messages, extra) => {
+        const state = workState(messages, false, extra || {});
+        state.chatting.tools_in_thinking = false;
+        drawWorkState(state);
+      };
+      const order = () => Array.from(el.col.querySelector('.work-turn-body').children)
+        .map(row => row.querySelector('.tool') ? 'tool' : row.querySelector('.think') ? 'thought' : '')
+        .filter(Boolean);
+      look([user, thought1, tool1], { generating: true, reasoning: 'Second thought.', reasoning_ms: 1000 });
+      look([user, thought1, tool1, thought2, tool2], {
+        generating: true, reasoning: 'Third thought.', reasoning_ms: 1000
+      });
+      const thought3 = workMessage('order-off-thought-3', 'Assistant', '', {
+        reasoning: 'Third thought.', reasoning_ms: 1000
+      });
+      look([user, thought1, tool1, thought2, tool2, thought3,
+        workMessage('order-off-final', 'Assistant', 'Finished.')]);
+      workCheck(JSON.stringify(order()) === JSON.stringify([
+        'thought', 'tool', 'thought', 'tool', 'thought'
+      ]), 'separate Plain blocks became out of order: ' + JSON.stringify(order()));
+    });
+
+    await page.evaluate(async () => {
+      const repeated = 'The result is incomplete. I will search again for a more specific page.';
+      const user = workMessage('repeat-user', 'You', 'Search and summarize.');
+      const running = workMessage('repeat-tool', 'Tool', 'Running ...', {
+        reasoning: repeated, reasoning_ms: 1800, tool_name: 'web_search', tool: 'Running ...'
+      });
+      const state = workState([user, running], false, { generating: true, running: 'web_search',
+        reasoning: repeated, reasoning_ms: 1800 });
+      state.chatting.collapse_thinking = false;
+      state.chatting.collapse_tools = false;
+      drawWorkState(state);
+      const main = el.col.querySelector('.work-turn');
+      if (main.classList.contains('shut')) { main.querySelector('.work-turn-head').click(); }
+      const visibleThoughts = () => Array.from(main.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1,
+        'live reasoning duplicated the same reasoning saved with a running tool');
+      workCheck(main.querySelector('.think .words .tool'),
+        'the repeated-thought case lost its running tool block');
+      state.chatting.tools_in_thinking = false;
+      drawWorkState(state);
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1,
+        'live reasoning duplicated the running tool thought when tools were outside thinking');
+      state.reasoning = 'The new result gives me a useful version number.';
+      drawWorkState(state);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      workCheck(visibleThoughts().filter(text => text === repeated).length === 1
+        && visibleThoughts().filter(text => text === state.reasoning).length === 1,
+        'new live reasoning was hidden along with a repeated thought');
+      const savedThought = workMessage('repeat-saved-thought', 'Assistant', '', {
+        reasoning: repeated, reasoning_ms: 900
+      });
+      const savedTool = workMessage('repeat-saved-tool', 'Tool', 'Running ...', {
+        reasoning: repeated, reasoning_ms: 900, tool_name: 'web_search', tool: 'Running ...'
+      });
+      const historyState = workState([user, savedThought, savedTool], false, {
+        generating: true, reasoning: repeated, reasoning_ms: 1800
+      });
+      historyState.chatting.collapse_thinking = false;
+      historyState.chatting.collapse_tools = false;
+      historyState.chat.id = 'visual-saved-duplicate-check';
+      drawWorkState(historyState);
+      const historyMain = el.col.querySelector('.work-turn');
+      if (historyMain.classList.contains('shut')) {
+        historyMain.querySelector('.work-turn-head').click();
+      }
+      const historyThoughts = () => Array.from(historyMain.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(historyThoughts().filter(text => text === repeated).length === 1,
+        'the same thought was shown again by the saved tool record');
+      historyState.chatting.tools_in_thinking = false;
+      drawWorkState(historyState);
+      workCheck(historyThoughts().filter(text => text === repeated).length === 1,
+        'the saved thought duplicated after its tool when tools were outside thinking');
+      const transitionTool = workMessage('transition-tool', 'Tool', 'Search results', {
+        reasoning: repeated, reasoning_ms: 900, tool_name: 'web_search',
+        tool: 'Latest results for Minecraft.'
+      });
+      const transitionState = workState([user], false, { generating: true,
+        reasoning: repeated, reasoning_ms: 1800 });
+      transitionState.chat.id = 'visual-transition-duplicate-check';
+      transitionState.chatting.collapse_thinking = false;
+      transitionState.chatting.collapse_tools = false;
+      drawWorkState(transitionState);
+      const transitionMain = el.col.querySelector('.work-turn');
+      if (transitionMain.classList.contains('shut')) {
+        transitionMain.querySelector('.work-turn-head').click();
+      }
+      await new Promise(resolve => setTimeout(resolve, 600));
+      workCheck(Array.from(transitionMain.querySelectorAll('.think .thought'))
+        .some(node => node.textContent.trim() === repeated),
+      'the initial live thought did not render for the transition check');
+      transitionState.messages = [user, transitionTool];
+      drawWorkState(transitionState);
+      const transitionThoughts = Array.from(transitionMain.querySelectorAll('.think .thought'))
+        .map(node => node.textContent.trim()).filter(Boolean);
+      workCheck(transitionThoughts.filter(text => text === repeated).length === 1
+        && transitionMain.querySelector('.think .words .tool'),
+      'a thought already on screen remained duplicated after a tool completed');
+    });
+    await page.evaluate(() => {
+      const repeated = 'The result is incomplete. I will search again for a more specific page.';
+      const user = workMessage('repeat-user', 'You', 'Search and summarize.');
+      const completed = workMessage('repeat-completed-tool', 'Tool', 'Search results', {
+        reasoning: repeated, reasoning_ms: 1800, tool_name: 'web_search',
+        tool: 'Latest results for Minecraft.'
+      });
+      const screenshotState = workState([user, completed], false, { generating: true,
+        reasoning: repeated, reasoning_ms: 1800 });
+      screenshotState.chatting.collapse_thinking = false;
+      screenshotState.chatting.collapse_tools = false;
+      screenshotState.chat.id = 'visual-duplicate-check';
+      drawWorkState(screenshotState);
+      const screenshotMain = el.col.querySelector('.work-turn');
+      if (screenshotMain.classList.contains('shut')) {
+        screenshotMain.querySelector('.work-turn-head').click();
+      }
+    });
+    await page.screenshot({ path: path.join(shotDir, 'plain-no-duplicate-thought.png'), fullPage: true });
+    console.log(path.join(shotDir, 'plain-cancel.png'));
+    console.log(path.join(shotDir, 'plain-worked.png'));
+    console.log(path.join(shotDir, 'plain-final-outside-worked.png'));
+    console.log(path.join(shotDir, 'plain-thinking-complete.png'));
+    console.log(path.join(shotDir, 'corporate-processing.png'));
+    console.log(path.join(shotDir, 'corporate-worked.png'));
+    console.log(path.join(shotDir, 'corporate-thinking.png'));
+    console.log(path.join(shotDir, 'plain-two-turns.png'));
+    console.log(path.join(shotDir, 'direct-answer-plain.png'));
+    console.log(path.join(shotDir, 'direct-answer-corporate.png'));
+    console.log(path.join(shotDir, 'plain-thought-tool-order.png'));
+    console.log(path.join(shotDir, 'plain-no-duplicate-thought.png'));
+    console.log('Working blocks, final response placement, thought deduplication, cancellation colour, and Corporate response animation passed');
+  } finally {
+    await browser.close();
+  }
+})().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

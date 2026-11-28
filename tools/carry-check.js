@@ -41,7 +41,7 @@ const REMOTE = process.env.AN_PAGE ? path.resolve(process.env.AN_PAGE) : PAGE;
       max_tokens: -1, seed: -1, draft_model: '', draft_tokens: 4, parallel: 1,
       batch_size: 2048, ubatch_size: 512, vision: false, image_min_tokens: 0,
       image_max_tokens: 0, mmproj_cpu: false, reasoning_budget: -1,
-      reasoning_message: '', tensor_parallel: false, chat_template: '',
+      reasoning_message: '', split_mode: 'layer', chat_template: '',
       extra_args: '', send_default_args: true, vram_budget: 90, gpu_enabled: [false]
     };
     var gpus = [{ name: 'A card', memory_text: '12 GiB', memory_mb: 12288, is_offload: true }];

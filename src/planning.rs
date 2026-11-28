@@ -206,23 +206,14 @@ pub fn init_definition() -> Value {
         "function": {
             "name": INIT_NAME,
             "description": with_rule(String::from(
-                "Write the whole plan of this chat in one call. This \
-                tool has no path, because it reaches the plan of this chat and \
-                no other. It \
-        is the first writing of the plan: call it once, when the plan is empty, \
-        with all of the plan from its first heading to its last line. What you \
-        send becomes the plan from beginning to end, and anything that was \
-        there before is replaced. Never call it again once the plan has been begun: a second call deletes the plan and every part of it the user read. Change \
-        a plan that exists with the tool `edit_plan`, part by part, so each \
-        change is visible and nothing that was agreed is lost. The text must be the plan itself, and not a promise of it: a plan of one line is refused as no plan. Never write the plan with another tool, and never write the plan in your answer.",
+                "This tool has no path and makes the plan's first writing. Use once, only while the plan is empty; it replaces the entire plan. Use edit_plan for later changes. Provide the complete plan itself, not a promise; never write it with another tool or in your answer.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "plan": {
                         "type": "string",
-                        "description": "The whole plan, exactly as it \
-        should read. Every part of it, from the first heading to the last line."
+                        "description": "Complete, self-contained plan text."
                     }
                 },
                 "required": ["plan"]
@@ -290,36 +281,28 @@ pub fn edit_definition() -> Value {
         "function": {
             "name": EDIT_NAME,
             "description": with_rule(String::from(
-                "Change the plan of this chat. This tool has no path, \
-        because it reaches that one plan and no other: the plan is a row of the \
-        chats database, and it is the only thing this planning mode may change. Copy each old_string exactly from the plan, spacing included, and give the whole of a change to one call. The changes are made one after another, each against the plan as the change before it left it, and no two of them may cover the same text. Each old_string must match one place, unless replace_all is set for it; if one matches no place, or more than one, nothing at all is written. An old_string that is empty adds the words of new_string at the end of the plan, which is how a plan is written out in parts. A call that succeeded means the plan now holds what was sent, so \
-        read it again only when you must. Never write the plan with another \
-        tool, and never write the plan in your answer: this tool is the only \
-        way to change the plan.",
+                "This tool has no path and edits this chat's plan with exact-text replacements. Copy old_string exactly; edits apply in order and each match must be unique unless replace_all is true. An empty old_string appends text. If any match fails or is ambiguous, nothing changes. This is the only tool for changing an existing plan.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "edits": {
                         "type": "array",
-                        "description": "The changes to make in one call. \
-        Each change gives the text to replace and the text to put in its place.",
+                        "description": "Ordered replacements to apply to the plan.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "old_string": {
                                     "type": "string",
-                                    "description": "The text to replace, copied from the plan. Empty means: add the text of new_string at the end of the plan."
+                                    "description": "Exact text to replace; empty appends new_string."
                                 },
                                 "new_string": {
                                     "type": "string",
-                                    "description": "The text to put in its place."
+                                    "description": "Replacement or appended text."
                                 },
                                 "replace_all": {
                                     "type": "boolean",
-                                    "description": "Replace every place \
-        this text appears, instead of requiring that it appears once. Off when \
-        it is not given."
+                                    "description": "Replace every match; defaults to false."
                                 }
                             },
                             "required": ["old_string", "new_string"]
@@ -340,17 +323,14 @@ pub fn end_definition() -> Value {
         "function": {
             "name": END_NAME,
             "description": with_rule(String::from(
-                "End planning mode and begin the work from the plan. It is the only way planning mode ends: no sentence you write, and no plan that reads as finished, ends it in place of this call. Call this only after the user has stated, in their own text, that the plan is agreed and the work may begin: text such as go ahead, start, begin, do it, or an answer to your question for leave. Never call it while the plan is still open, never call it to avoid more planning, and never call it twice in one turn. When \
-        it is called, the plan is sent whole as the first message of a new \
-        conversation, and nothing of this planning conversation is kept, so the \
-        plan must be on its own: it must name every file, every step and every check, and it must not refer to this conversation.",
+                "End planning and start the work from the plan. This is the only way planning mode ends. Call only after the user has stated explicit approval of the plan and said to begin; never infer approval from a finished plan. The plan becomes the first message of a fresh conversation, so make it self-contained and do not refer to this chat.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "why": {
                         "type": "string",
-                        "description": "The text the user stated that gave the leave to begin, or a short saying of what they agreed to."
+                        "description": "Brief quote or summary of the user's explicit approval to begin."
                     }
                 },
                 "required": []
@@ -363,218 +343,20 @@ pub fn end_definition() -> Value {
 // the text of the program, in a message of the role `system`, for every ask of a planning chat,
 // and it is removed with planning mode.
 pub fn system_prompt(plan: &str) -> String {
-    let mut out = String::new();
-    out.push_str(&format!(
-        "PLANNING MODE IS ON FOR THIS CONVERSATION.\n\n\
-         You work as the planning architect of one piece of work. Nothing of the \
-         work is done now. Your one task is a plan of it that another model, or a \
-         person, can carry out without asking a single question afterwards. Write \
-         that plan into the plan file, and keep it there in the best shape you can \
-         bring it to, turn after turn.\n\n\
-         Two rules govern everything below. The first: you plan the work and \
-         never do it - not one line of code of it, not one file of it, not one \
-         command of it that leaves a thing changed. The second: planning mode ends \
-         only when `{}` is called, and only on the leave of the user. Every other \
-         way you may think of for getting out of this mode is a rule you are \
-         breaking at that moment, and not a mode you have left.\n\n",
-        END_NAME
-    ));
-    out.push_str(&format!(
-        "Nothing of the work is done in this mode.\n\
-         The plan is the whole of what you produce here. The work it describes is \
-         begun by nobody until `{}` is called, and it is never begun by you.\n\
-         Write nothing, and change nothing, of the work: no file, no code, no \
-         patch, no test, no setting, no migration, no manifest, no note, no commit \
-         message, no record, no branch. Nothing of the work is made, moved, \
-         copied, renamed or deleted. The plan file is the one file you may change, \
-         and only through `{}` and `{}`.\n\
-         Run no command that changes anything. That covers every command \
-         that builds, compiles, installs, tests, checks, formats, generates, \
-         migrates, seeds, deploys, publishes, uploads, restarts, cleans, removes, \
-         moves or writes; it covers the words of version control that move a thing \
-         - commit, push, checkout, switch, merge, rebase, stash, reset, restore, \
-         tag; and it covers a redirect, a here-document or a pipe that puts words \
-         into a file, and a command run in the working directory of the chat \
-         that leaves a folder of build output behind it.\n\
-         A command that only reads what is there is allowed, and wanted: \
-         listing a folder, reading a file, searching, `git status`, `git log`, \
-         `git diff`, `git show`, `git remote -v`, `pwd`, `wc`, `which`, reading a \
-         config or a manual page, asking a service what it holds. Where you cannot \
-         tell whether a command changes a thing, do not run it: write into the plan \
-         what you would have run and what you expected from it, or ask the user to \
-         run it and tell you the answer.\n\
-         Never say that you wrote, made, fixed, ran, built, installed or tested a \
-         thing, and never hand a finished piece of the work over in the conversation as \
-         though it stood somewhere. What you give is the plan of what is to be \
-         written: the names, the signatures, the exact words of a new setting, \
-         message or error, the shape and the order of the change - a thing a \
-         reader could carry out, and not the thing itself.\n\
-         The pull to do the work is strongest where the plan is nearly finished \
-         and the next thing that seems useful is a change so small it would take \
-         seconds. A small change is the work. Stop at the plan, however small the \
-         next step looks.\n\n",
-        END_NAME, INIT_NAME, EDIT_NAME
-    ));
-    out.push_str(&format!(
-        "The plan file.\n\
-         The plan of this chat is kept in one file: `{}`. It is stored in a folder \
-         of the planning directory of this program, away from the work it plans. \
-         Only two tools can change it. `{}` writes the whole plan in one \
-         call, and it is for the first writing only: when the file holds nothing \
-         yet, send the plan from its first heading to its last line in one call. \
-         `{}` changes an existing plan by matching text in it, and it is the tool \
-         for every write after the first: a change made there is recorded as a \
-         change, and nothing the user has read or agreed to is thrown away. Never \
-         call `{}` a second time, because it overwrites the whole file. Never \
-         write the plan with any other tool: a file tool does not read the plan \
-         file, not with a command of the terminal, not by sending the text in an \
-         answer. The plan is the only thing you may change in this mode, and these \
-         two tools are the only way to change it. \
-         Your answers to the user stay short: they say what changed in the plan, \
-         what you still need, and nothing else. Never repeat the plan in your \
-         reply.\n\n",
-        plan, INIT_NAME, EDIT_NAME, INIT_NAME
-    ));
-    out.push_str(
-        "How deep the plan must go.\n\
-         Plan everything in great detail, down to the smallest detail. A plan that \
-         is broad, or that leaves a part of the work to be thought out later, is a \
-         plan that has failed, whoever reads it. Work out the size of every part \
-         before you write it: the name of every file that is made, read or \
-         changed; the name of every function, method, table, field, setting and \
-         message inside it; the words of every signature, and what each one takes \
-         and gives back; the order the steps must go in, and why that order and no \
-         other; the exact text of every new setting, prompt, message and error \
-         word; the check that says when a step is really finished; and the way a \
-         step is put right again when it came out wrong. Where a part cannot be \
-         settled now, write down what is unknown, what the choices are, which one \
-         you advise, and what the answer changes. Guess at nothing, and call \
-         nothing obvious: both are how a plan goes wrong at the far end of the \
-         work.\n\n",
-    );
-    out.push_str(
-        "The shape of the plan.\n\
-         Keep the plan in this order, and leave a part out only when it has truly \
-         nothing in it.\n\
-         1. What is asked for: the work in the words of the user, and what a \
-         finished piece of work looks like.\n\
-         2. The ground it stands on: what the work is now, which files and parts \
-         take part in it, what the running program does today, and what may not be \
-         touched. Read before you write this: never guess at the shape of a project.\n\
-         3. The rules the work must keep: the shape of the code, the words of the \
-         comments, what must not be added, and what must go on working as it does.\n\
-         4. The whole of the work, in steps. Each step names the files it touches, \
-         the parts inside them, what goes in and what comes out, why it comes \
-         after the step before it, how long it takes, and the check that proves it \
-         was done. A step is small enough to be checked on its own.\n\
-         5. The tests: what is tested, by what command, with what input, and what \
-         the answer must be. Include the cases that break easily: nothing in it, \
-         very much in it, a name that is strange, a thing that is missing, a thing \
-         that was stopped half way, a file of another shape, an older record read \
-         by a newer program.\n\
-         6. The risks: what may go wrong, what it would look like when it does, \
-         and what is done about it before it happens.\n\
-         7. The order of the work and the places it may be stopped: what must be \
-         finished before what, and what may stand on its own.\n\
-         8. The open questions: what only the user can answer, each with the \
-         answer you advise and what turns on it.\n\
-         9. What is not done: the parts of the work you are leaving out on \
-         purpose, so nobody thinks they were kept.\n\n",
-    );
-    out.push_str(&format!(
-        "How the work of planning goes.\n\
-         Look before you write. You may read the project, list its folders, open \
-         its files and run a command that only looks about, so that the plan is \
-         built on what is there. Change nothing of the work, as the rule above \
-         says: where a tool would change something, do not call it. Say in the \
-         plan what you looked at, so a reader knows what the plan was built on. \
-         Of the whole of the work you write one file only, and it is the plan.\n\
-         Take the plan one step at a time. A plan file that holds nothing is \
-         written whole with `{}`: send all of the plan you have in one call, and \
-         call it once. After that first writing, write the part that is settled, \
-         then look again, then write the next part. Change the plan with `{}` as \
-         soon as a part of it is settled, rather than holding a page of it back for \
-         the next answer. A plan that is gone over in five calls is a better plan \
-         than one written in one.\n\
-         When the user asks for a change, change the plan file first and then \
-         answer. When the user asks a question about the work, answer it from what \
-         you read, and put what you learned into the plan.\n\
-         Ask the user about what you cannot settle, a few questions at a time, \
-         and write their answers into the plan as they come.\n\
-         Keep the plan in the language the user writes in.\n\n",
-        INIT_NAME, EDIT_NAME
-    ));
-    out.push_str(&format!(
-        "The user, and what the plan must never hold.\n\n\
-         The user never sees the plan file. They see this conversation only: your answers, \
-         and the marks of the tools you call. So never write a question into the \
-         plan, never leave an open point there for the user to settle, and never \
-         ask them in the plan to confirm, to choose or to fill anything in. A plan \
-         that holds questions for the user is a plan that cannot be carried out, \
-         for nobody will ever read them.\n\n\
-         When a thing can be settled only by the user, ask with `{}`. It is the way \
-         to ask in this mode: not with `ask_user`, whose card over the chat box is \
-         gone when its few seconds are spent and brings back one answer at a time, \
-         and not with a question written in the words of an answer, which is read \
-         after the turn is over and often not answered at all. Ask any \
-         number of questions in one call, each with the answers the user may choose \
-         from; set many to true when several of them may be chosen, and give no \
-         list when the user is to write the answer. The questions stand in the conversation \
-         itself, the user marks what they like of every one of them, and nothing \
-         comes back until they send the whole of it. No clock runs on those \
-         questions, so wait for them: never settle on your own a thing you said you \
-         were asking about. When the answers come, write them into the plan as \
-         decisions taken, and not as questions that were once asked.\n\n\
-         When you want to see how a change landed, or what the plan holds at a \
-         certain place, read it back with `{}`: give a pattern with the lines to \
-         give before and after each place it is found, or ask for the head, the \
-         tail, or a range of its lines. Every line comes back with the number it \
-         stands on in the file. Reach for it when it is useful to you: it is no \
-         step you must go through after every change, and the plan is yours to \
-         reason about as it stands in your mind.\n\n",
-        ASK_NAME, READ_NAME
-    ));
-    out.push_str(&format!(
-        "Ending planning mode.\n\
-         `{}` is the only way planning mode ends. Nothing else ends it: not a \
-         sentence you write, not a plan that reads as finished, not an answer that \
-         went ahead and started the work, not words of the user that you took for \
-         permission without asking. While planning mode is on, these instructions \
-         come back with every request in this chat, and a step of the work is \
-         still forbidden - so a turn in which you did a step of the work is a turn \
-         that broke the first rule, and not a sign that you are out of the mode.\n\
-         Never announce that the work has begun, that you will now carry out the \
-         plan, or that you are making the first change. Such a sentence claims the \
-         mode is over when it is not, and it is how a model comes to do the work \
-         instead of calling `{}`. When you are about to write words such as I \
-         will start now, stop: call `{}` if the user has given permission, and ask \
-         for it if they have not. Never do a step of the work as a beginning, as \
-         a trial, or to prove that the plan can be carried out.\n\
-         The work begins only when the user says it may. When they have said, in \
-         their own words, that the plan is agreed and the work may begin, call `{}` \
-         and say nothing else. When their words are not clear, ask once whether \
-         they mean the plan is agreed. Never call `{}` on your own, never call it \
-         because the plan is detailed enough, and never call it twice in one turn.\n\
-         When `{}` is called, this conversation is dropped: the plan file is sent \
-         whole as the first message of a new conversation, with the tools and the \
-         prompts it had before planning mode, and none of these instructions. \
-         Nothing of this conversation is kept, and the planning tools are gone. \
-         The plan must therefore stand entirely on its own: it must say what the \
-         work is, what the starting point is, and what to do, without needing \
-         anything said here.\n\
-         Until `{}` is called there is nothing here to report but the plan. A user \
-         who says begin, and is answered with more words about the work instead of \
-         the call that starts it, is left exactly where they stood, and will say \
-         begin again.",
-        END_NAME,
-        END_NAME,
-        END_NAME,
-        END_NAME,
-        END_NAME,
-        END_NAME,
-        END_NAME
-    ));
-    out
+    format!(
+        "PLANNING MODE IS ON\n\n\
+         You design the work; you do not execute it. Inspect the project with read-only tools, but do not change work files or run commands that write, test, build, install, format, deploy or alter version control.\n\n\
+         The only writable record is this chat's plan ({plan}). Use {init} once, only while the plan is empty; it replaces the whole plan. Use {edit} for later changes and {read} to inspect it. Never write the plan with another tool or in an answer. Keep replies brief and do not repeat the plan.\n\n\
+         Write a self-contained plan in the user's language: goal and acceptance criteria; verified starting state and affected paths; constraints; ordered implementation steps; checks and expected outcomes; risks and recovery. Verify details when possible and label unknowns instead of guessing.\n\n\
+         The user cannot see the plan. Ask decisions only the user can make through {ask}; keep questions and unresolved choices out of the plan. Wait for answers and record decisions there.\n\n\
+         Planning ends only through {end}. Call it only after the user explicitly approves the plan and says to begin. If approval is ambiguous, ask through {ask}. The plan becomes the first message of a fresh conversation, so it must stand alone. A finished plan is not approval.",
+        plan = plan,
+        init = INIT_NAME,
+        edit = EDIT_NAME,
+        read = READ_NAME,
+        ask = ASK_NAME,
+        end = END_NAME,
+    )
 }
 
 // The command names of the chat composer are kept here, and this is where the next one is
@@ -605,34 +387,44 @@ pub fn asked_as_program(text: &str) -> bool {
 // a request in it.
 pub fn split(text: &str) -> (Option<Command>, String) {
     let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix(COMMAND_WORD) else {
-        return (None, text.to_string());
-    };
-    // `/planet` is no command: the word has to be on its own.
-    if let Some(next) = rest.chars().next() {
-        if !next.is_whitespace() {
-            return (None, text.to_string());
+    for (word, command) in [
+        (COMMAND_WORD, Command::Plan),
+        (crate::goal::COMMAND_WORD, Command::Goal),
+    ] {
+        let Some(rest) = trimmed.strip_prefix(word) else {
+            continue;
+        };
+        // The command has to stand as a whole word: `/planet` and `/goalkeeper` are text.
+        if rest.chars().next().is_some_and(|next| !next.is_whitespace()) {
+            continue;
         }
+        return (Some(command), rest.trim_start().to_string());
     }
-    (Some(Command::Plan), rest.trim_start().to_string())
+    (None, text.to_string())
 }
 
-// The commands of the chat composer, in the order they are listed. One command now, and the
-// list is where the next one is put.
+// The commands of the chat composer, in the order they are listed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     Plan,
+    Goal,
 }
 
 impl Command {
     // The word the user writes for this command, marker included.
     pub fn word(&self) -> &'static str {
-        COMMAND_WORD
+        match self {
+            Command::Plan => COMMAND_WORD,
+            Command::Goal => crate::goal::COMMAND_WORD,
+        }
     }
 
     // What the command is for, for the list the chat composer puts up.
     pub fn words(&self) -> &'static str {
-        COMMAND_WORDS
+        match self {
+            Command::Plan => COMMAND_WORDS,
+            Command::Goal => crate::goal::COMMAND_WORDS,
+        }
     }
 }
 
@@ -642,6 +434,10 @@ pub fn list() -> Vec<Value> {
         json!({
             "name": Command::Plan.word(),
             "words": Command::Plan.words(),
+        }),
+        json!({
+            "name": Command::Goal.word(),
+            "words": Command::Goal.words(),
         }),
         json!({
             "name": PROGRAM_WORD,
@@ -887,36 +683,28 @@ pub fn ask_definition() -> Value {
         "type": "function",
         "function": {
             "name": ASK_NAME,
-            "description": "Put a questionnaire to the user, and wait for the answers. Use it for the few things that only the user can settle, and never for the rest. Ask any number of questions in one call. Each question carries the words of it and the answers the user may choose from; set many to true when more than one of them may be chosen, and leave the list empty when the user is to write the answer instead. The \
-                questionnaire appears in the conversation itself, the user \
-                chooses what they like of it and sends the whole of it when \
-                they are ready, and there is no clock on it. This is the way to ask the user anything while planning mode is on: use it instead of `ask_user`, whose card over the chat box is gone when its few seconds are spent and brings back one answer at a time, and instead of a question written in the words of an answer, which is read after the turn is over and often not answered at all. Nothing of the plan is sent to the user, so every question you need an answer to must be asked with this tool: never \
-                write a question, an open point for the user, or a list of \
-                things to confirm into the plan.",
+            "description": "Ask only when work cannot proceed without a decision from the user. Ask up to 12 questions with up to 12 choices each; set many for multiple selections or leave choices empty for a written answer. There is no timeout. In planning mode use this instead of ask_user, and keep questions and unresolved choices out of the plan.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "questions": {
                         "type": "array",
-                        "description": "The questions to put to the \
-        user, in the order they should appear.",
+                        "description": "Questions in display order (up to 12).",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "question": {
                                     "type": "string",
-                                    "description": "The question, in one \
-        or two sentences that are on their own."
+                                    "description": "One concise, self-contained question.",
                                 },
                                 "choices": {
                                     "type": "array",
-                                    "description": "The answers the user \
-        may choose from. Leave it empty when the user should write the answer.",
+                                    "description": "Suggested answers; empty lets the user write one.",
                                     "items": { "type": "string" }
                                 },
                                 "many": {
                                     "type": "boolean",
-                                    "description": "True when the user may choose more than one of the answers. Off when it is not given."
+                                    "description": "Allow multiple selections; defaults to false."
                                 }
                             },
                             "required": ["question"]
@@ -1001,46 +789,45 @@ pub fn read_definition() -> Value {
         "type": "function",
         "function": {
             "name": READ_NAME,
-            "description": "Read back the plan of this chat, exactly as \
-        it stands, with the number of each line in front of it. Use it when you want to see how a change landed, or to look at a part of the plan again. It works like the search command of a terminal: give a pattern to look for, with before and after for the whole lines to give about each place that is found, and at_most to stop after that many places. With no pattern, head gives the first lines, tail the last lines, and from_line with to_line a range of them; with none of those the whole plan is read back. Places that are found are kept apart by a line of two marks. This tool changes nothing.",
+            "description": "Read this plan with numbered lines. Search with pattern and optional before/after context and at_most; use head, tail or from_line/to_line to read a range. With no filters, returns the whole plan. This tool changes nothing.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "The text to search for in the plan. With none given, header, tail or the range of lines reports what is read back."
+                        "description": "Text to search for; omit to read the whole plan or a selected range."
                     },
                     "ignore_case": {
                         "type": "boolean",
-                        "description": "Search for the text whatever their letters mean, upper or lower. Off when it is not given."
+                        "description": "Ignore letter case; defaults to false."
                     },
                     "before": {
                         "type": "number",
-                        "description": "How many whole lines to give before each place that was found. None when it is not given."
+                        "description": "Context lines before each match."
                     },
                     "after": {
                         "type": "number",
-                        "description": "How many whole lines to give after each place that was found. None when it is not given."
+                        "description": "Context lines after each match."
                     },
                     "at_most": {
                         "type": "number",
-                        "description": "Stop after this many places have been found. All of them when it is not given."
+                        "description": "Maximum matches to return; all by default."
                     },
                     "head": {
                         "type": "number",
-                        "description": "The first lines of the plan, counting from the first line."
+                        "description": "Read the first N lines."
                     },
                     "tail": {
                         "type": "number",
-                        "description": "The last lines of the plan, counting back from the last line."
+                        "description": "Read the last N lines."
                     },
                     "from_line": {
                         "type": "number",
-                        "description": "The line to begin reading from. The first line of the plan is one."
+                        "description": "First line to read (1-based)."
                     },
                     "to_line": {
                         "type": "number",
-                        "description": "The line to read up to, that line included."
+                        "description": "Last line to read, inclusive."
                     }
                 },
                 "required": []
@@ -1395,6 +1182,15 @@ mod tests {
         let (planet, words) = split("/planets are far");
         assert_eq!(planet, None);
         assert_eq!(words, "/planets are far");
+        let (goal, objective) = split("/goal fix and verify the parser");
+        assert_eq!(goal, Some(Command::Goal));
+        assert_eq!(objective, "fix and verify the parser");
+        let (goal_alone, empty) = split("/goal");
+        assert_eq!(goal_alone, Some(Command::Goal));
+        assert!(empty.is_empty());
+        let (not_goal, words) = split("/goalkeeper is a word");
+        assert_eq!(not_goal, None);
+        assert_eq!(words, "/goalkeeper is a word");
     }
 
     // The three tools name themselves, and none of them takes a place.
@@ -1440,7 +1236,7 @@ mod tests {
         assert!(said.contains("ab12cd34ef.md"));
         assert!(said.contains(INIT_NAME));
         assert!(said.contains(EDIT_NAME));
-        assert!(said.contains("down to the smallest detail"));
+        assert!(said.contains("self-contained plan"));
         assert!(said.contains(END_NAME));
         // The plan is named, and no other file is proposed to it.
         assert!(!said.contains("edit_file"), "{}", said);
@@ -1455,52 +1251,11 @@ mod tests {
     fn the_prompt_forbids_the_work_and_keeps_the_reading() {
         let _guard = config::test_turn();
         let said = system_prompt("ab12ab12ab.md");
-        assert!(
-            said.contains("Nothing of the work is done in this mode"),
-            "{said}"
-        );
-        assert!(
-            said.contains("Two rules govern everything below"),
-            "{said}"
-        );
-        assert!(
-            said.contains("Run no command that changes anything"),
-            "{said}"
-        );
-        // The types of command that change something are stated out, so that a model cannot
-        // read a build, an install or a commit as an item apart.
-        for kind in [
-            "builds",
-            "compiles",
-            "installs",
-            "tests",
-            "formats",
-            "deploys",
-            "publishes",
-            "commit",
-            "push",
-            "rebase",
-        ] {
-            assert!(said.contains(kind), "the ban does not name {kind}: {said}");
-        }
-        // A redirect into a file is a writing, whatever the command before it was.
-        assert!(said.contains("a redirect, a here-document or a pipe"), "{said}");
-        // Reading, and the commands that only tell what is there, stay open.
-        assert!(
-            said.contains("A command that only reads what is there is allowed"),
-            "{said}"
-        );
-        for looker in ["`git status`", "`git log`", "`git diff`", "`git show`"] {
-            assert!(said.contains(looker), "{looker} should stay open: {said}");
-        }
-        // Where a command is not plainly a looking one, the plan takes the place of running it.
-        assert!(
-            said.contains("do not run it: write into the plan"),
-            "{said}"
-        );
-        // The one file that may change is the plan, and the file tools of the work are never
-        // named to it.
-        assert!(said.contains("The plan is the only thing you may change"), "{said}");
+        assert!(said.contains("You design the work; you do not execute it"), "{said}");
+        assert!(said.contains("read-only tools"), "{said}");
+        assert!(said.contains("do not change work files"), "{said}");
+        assert!(said.contains("version control"), "{said}");
+        assert!(said.contains("The only writable record is this chat's plan"), "{said}");
         assert!(!said.contains("edit_file"), "{said}");
         assert!(!said.contains("create_file"), "{said}");
     }
@@ -1512,30 +1267,9 @@ mod tests {
     fn the_prompt_names_the_one_way_out_of_planning_mode() {
         let _guard = config::test_turn();
         let said = system_prompt("cd34cd34cd.md");
-        assert!(
-            said.contains(&format!(
-                "`{END_NAME}` is the only way planning mode ends"
-            )),
-            "{said}"
-        );
-        assert!(
-            said.contains("planning mode ends only when"),
-            "{said}"
-        );
-        assert!(
-            said.contains("Never announce that the work has begun"),
-            "{said}"
-        );
-        assert!(said.contains("instead of calling"), "{said}");
-        assert!(
-            said.contains("Never do a step of the work as a beginning"),
-            "{said}"
-        );
-        // A turn that did a step of the work broke the rule, and is no way out.
-        assert!(
-            said.contains("broke the first rule"),
-            "{said}"
-        );
+        assert!(said.contains(&format!("Planning ends only through {END_NAME}")), "{said}");
+        assert!(said.contains("only after the user explicitly approves"), "{said}");
+        assert!(said.contains("A finished plan is not approval"), "{said}");
         let words = end_definition()["function"]["description"]
             .as_str()
             .expect("words")
@@ -1688,13 +1422,13 @@ mod tests {
         let said = system_prompt("plan-7.md");
         assert!(said.contains(ASK_NAME), "{said}");
         assert!(said.contains("ask_user"), "{said}");
-        assert!(said.contains("It is the way to ask in this mode: not with `ask_user`"), "{said}");
+        assert!(said.contains("through ask_plan"), "{said}");
         let words = ask_definition()["function"]["description"]
             .as_str()
             .expect("words")
             .to_string();
         assert!(words.contains("instead of `ask_user`"), "{words}");
-        assert!(words.contains("no clock on it"), "{words}");
+        assert!(words.contains("no timeout"), "{words}");
     }
 
     // The prompt reports the model that the user never sees the plan, names the questionnaire
@@ -1703,12 +1437,15 @@ mod tests {
     #[test]
     fn the_prompt_keeps_questions_out_of_the_plan() {
         let said = system_prompt("plans/plan-1.md");
-        assert!(said.contains("does not read the plan file"), "{}", said);
+        assert!(said.contains("user cannot see the plan"), "{}", said);
         assert!(said.contains(ASK_NAME), "{}", said);
         assert!(said.contains(READ_NAME), "{}", said);
-        assert!(said.contains("never write a question into the"), "{}", said);
-        // No clock runs on the questions of the plan.
-        assert!(said.contains("No clock runs on those"), "{}", said);
+        assert!(said.contains("keep questions and unresolved choices out of the plan"), "{}", said);
+        let definition = ask_definition();
+        let ask = definition["function"]["description"]
+            .as_str()
+            .expect("questionnaire instructions");
+        assert!(ask.contains("There is no timeout"), "{ask}");
     }
 
     // A questionnaire is any number of questions, each with the answers the user may choose

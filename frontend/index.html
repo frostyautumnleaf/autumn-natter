@@ -669,7 +669,7 @@ body.home .stage { display: none; }
  * What falls behind the text of the chat. The canvas covers all of the place the chat is in and
  * is under the thread, so a leaf is never over a word and never takes a click from one. */
 .fall {
-  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  position: absolute; left: 0; z-index: 0; width: 100%;
   pointer-events: none;
 }
 /*
@@ -690,9 +690,10 @@ body.home .stage { display: none; }
  * whole page, so the grid stands down while that form is on.
  */
 .gridbg {
-  position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%;
+  position: absolute; left: 0; z-index: 0; width: 100%;
   pointer-events: none;
 }
+body.home .gridbg, body.home .fall { display: none; }
 /*
  * The field of random digits the cursor uncovers in the background of the chat. It is the
  * deepest thing in the place the chat is in: under the rain and the leaves, under every
@@ -1013,7 +1014,8 @@ body.home .stage { display: none; }
   margin-top: 0; overflow: hidden; line-height: 15px;
   transition: opacity 160ms, height 160ms, margin-top 160ms;
   font-variant-numeric: tabular-nums; }
-.turn:hover .stamp { opacity: 1; height: 15px; margin-top: 5px; }
+.turn:hover .stamp:not(.corporate-message > .stamp), .corporate-message:hover > .stamp,
+.corporate-message:focus-within > .stamp { opacity: 1; height: 15px; margin-top: 5px; }
 /*
  * The blocks an answer ends with - the steps, the files proposed, the window of shown files,
  * the paths proposed - are not the text of the message. The line of the time and the markers
@@ -1230,29 +1232,65 @@ pre.code .t-p { color: var(--t-pun); }
   display: block; }
 .wgo { margin: 6px 0 0; }
 /*
- * The corporate display. Private thoughts and ordinary call bubbles are hidden. One card means
- * an answer: its title reports the current action and each assistant message is a sub-block. */
+ * The corporate display. Activity cards sit between assistant messages. Private thoughts
+ * and ordinary tool bubbles are hidden. */
 body.corpwork .think, body.corpwork .tool, body.corpwork .thinkwrap { display: none !important; }
+.corporate-message + .corporate-message { margin-top: 14px; }
 .work { margin: 14px 0; }
 .work { --work-text: var(--ink-leaf); }
 body:not(.dark):not(.silver):not(.corporate):not(.neon):not(.glass) .work { --work-text: #242424; }
 body.dark .work { --work-text: #ffffff; }
+.work-turn { --work-text: var(--ink-leaf); margin: 14px 0; }
+body:not(.dark):not(.silver):not(.corporate):not(.neon):not(.glass) .work-turn { --work-text: #242424; }
+body.dark .work-turn { --work-text: #ffffff; }
+.work-turn > .work-turn-head { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border: 0; background: none; color: var(--work-text); text-align: left;
+  font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.work-turn > .work-turn-head:hover { background: var(--hover); }
+.work-turn .work-turn-fold { display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; flex: 0 0 auto; color: var(--work-text); font-size: 10px; }
+.work-turn-head .work-turn-mark { width: 13px; height: 13px; flex: 0 0 auto; stroke: var(--dim); }
+.work-turn-head .work-turn-mark.bulb { stroke: var(--ink); }
+.work-turn-head .work-turn-dots { display: none; align-items: center; justify-content: center;
+  width: 12px; height: 12px; flex: 0 0 auto; gap: 3px; }
+.work-turn.corp-work-turn[data-active="true"] .work-turn-dots { display: inline-flex; }
+.work-turn.corp-work-turn.processing[data-active="true"] .work-turn-dots { display: none; }
+.work-turn-head .work-turn-dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
+  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
+.work-turn-head .work-turn-dots i:nth-child(2) { animation-delay: .15s; }
+.work-turn-head .work-turn-dots i:nth-child(3) { animation-delay: .3s; }
+.work-turn-head .brain-paper { display: none; width: 30px; height: 18px; flex: 0 0 auto;
+  overflow: visible; color: var(--ink); }
+.work-turn.processing .brain-paper { display: inline-flex; }
+.work-turn.shut > .work-turn-head .work-turn-fold { transform: rotate(-90deg); }
+.work-turn.shut > .work-turn-body { display: none; }
+.work-turn-state { color: var(--dim); font-weight: 600; }
+.work-turn-body { min-width: 0; margin-left: 6px; padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--line); }
+.work-turn-body > .turn:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.work-turn + .turn { border-top: 0; margin-top: 0; padding-top: 0; }
+.work-turn-body > .turn + .turn { margin-top: 12px; padding-top: 12px; }
+.work-turn-body > .corp-work-run + .corp-work-run,
+.work-turn-body > .corp-work-run + .turn { margin-top: 12px; }
 .work > .whead { display: flex; align-items: center; gap: 7px; padding: 9px 12px;
   cursor: pointer; color: var(--work-text); font-weight: 600; }
 .work > .whead .wfold { color: var(--work-text); font-size: 10px; flex: 0 0 auto; }
-.work > .whead .dots { display: inline-flex; visibility: hidden; gap: 3px;
-  align-items: center; justify-content: center; width: 12px; height: 12px; flex: 0 0 auto; }
-.work > .whead.busy .dots { visibility: visible; }
-.work > .whead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
-  background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
-.work > .whead .dots i:nth-child(2) { animation-delay: .15s; }
-.work > .whead .dots i:nth-child(3) { animation-delay: .3s; }
+.work > .whead .wmainmark { width: 13px; height: 13px; stroke: var(--dim); flex: 0 0 auto; }
+.work > .whead .wmainmark.bulb { stroke: var(--ink); }
+.brain-paper .brain { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round;
+  stroke-linejoin: round; }
+.brain-paper .page { fill: var(--bg); stroke: currentColor; stroke-width: .9; }
+.brain-paper .page-line { fill: none; stroke: currentColor; stroke-width: .55; }
+.brain-paper .page-one { animation: paper-in 1.35s ease-in-out infinite; }
+.brain-paper .page-two { animation: paper-in 1.35s ease-in-out .42s infinite; }
+@keyframes paper-in { 0% { opacity: .25; transform: translateX(-2px); }
+  55% { opacity: 1; } 100% { opacity: .1; transform: translateX(8px); } }
 .work .wfold { display: inline-flex; width: 13px; height: 13px; align-items: center;
   justify-content: center; line-height: 1; }
 .work.shut > .wbody { display: none; }
 .work.shut > .whead .wfold { transform: rotate(-90deg); }
 .work .wline, .work .wbhead, .work .wfile, .work .wout { color: var(--work-text); }
-.wbody { padding: 4px 12px 4px 37px; }
+.wbody { padding: 4px 12px 4px 19px; }
 .wblock { border: 0; border-left: 1px solid var(--line); }
 .wblock > .wbhead { display: flex; align-items: center; gap: 8px; padding: 7px 12px;
   cursor: pointer; }
@@ -1270,12 +1308,6 @@ body.dark .work { --work-text: #ffffff; }
 .wbbody .wblock > .wbhead { padding: 6px 10px; }
 .wbbody .wblock > .wbbody { padding: 0 10px 6px 26px; }
 .wline { padding: 3px 0; }
-/*
- * The text the model wrote to the user while it worked, before the block of the work was
- * closed. They are markdown, and they are under the first line of them, which is the header of
- * the block. */
-.wwords > .wbbody { color: var(--work-text); }
-.wwords > .wbbody > :first-child { margin-top: 0; }
 /*
  * The text of a call inside the short: the command that ran, the file it worked on, and what
  * returned. The block of the run itself is hidden while the mode remains, so these are the only
@@ -1343,6 +1375,7 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   justify-content: center; width: 12px; height: 12px; }
 .think > .thead.busy .dots { display: inline-flex; }
 .think > .thead.busy .bulb { display: none; }
+.think > .thead:not(.busy) .bulb { display: inline-flex; }
 .think > .thead .dots i { width: 3.5px; height: 3.5px; border-radius: 50%;
   background: var(--ink); animation: nod 1.1s ease-in-out infinite; }
 .think > .thead .dots i:nth-child(2) { animation-delay: .15s; }
@@ -1403,7 +1436,10 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   text-align: center; white-space: pre-wrap; overflow-wrap: anywhere; }
 .note::before, .note::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
 .turn.bad .note { color: var(--ink-fail); }
-.turn.bad .body, .turn.bad .bubble, .turn.bad .plain { color: var(--ink-fail); }
+/* A failed tool row may also carry the thinking that led to it. Keep the warning colour on the
+ * tool result itself so cancelling a call cannot tint the thoughts around it. */
+.turn.bad:not(.t-tool) .body, .turn.bad:not(.t-tool) .bubble,
+.turn.bad:not(.t-tool) .plain { color: var(--ink-fail); }
 
 /*
  * One run of the terminal tool. The header reports which command runs, or has run, and gives
@@ -1687,7 +1723,7 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
   from { opacity: 0; transform: translateY(12px) scale(.985); }
   to { opacity: 1; transform: none; }
 }
-.dock { flex: 0 0 auto; width: var(--dock-width, auto); margin-left: var(--dock-left, 0px);
+.dock { position: relative; flex: 0 0 auto; width: var(--dock-width, auto); margin-left: var(--dock-left, 0px);
   padding-bottom: 12px; }
 
 /*
@@ -1709,6 +1745,49 @@ body.seamless .thead::after { content: ""; flex: 1 1 auto; }
  * keep their places and never fall over the list. The header is one line; the list under it
  * opens when the user opens it, and the oldest message is at the bottom. */
 .queue { display: flex; flex-direction: column; gap: 4px; margin: 0 0 6px; }
+.goalbar {
+  display: flex; flex-direction: column; gap: 7px; margin: 0 0 6px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface);
+  box-shadow: var(--shadow-1); min-width: 0;
+}
+.goalbar.hidden { display: none; }
+.goalrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.goalmark { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 25px; height: 25px; border-radius: 8px; color: var(--accent); background: var(--accent-soft); }
+.goalmark .svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.5; }
+.goallabel { flex: 0 0 auto; color: var(--accent); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+.goalrequest { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--text-2);
+  font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.goalpaused { flex: 0 0 auto; padding: 2px 6px; border: 1px solid var(--accent-line);
+  border-radius: 999px; color: var(--dim); font-size: 9px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; }
+.goalpaused.hidden { display: none; }
+.goaltime { flex: 0 0 auto; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; }
+.goalactions { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 3px; }
+.goalaction { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 27px; height: 27px; padding: 0; border: 1px solid var(--line);
+  border-radius: var(--r-s); background: var(--surface-2); color: var(--dim); cursor: pointer; }
+.goalaction:hover { color: var(--ink); border-color: var(--accent-line); background: var(--tint); }
+.goalaction .svg { width: 13px; height: 13px; stroke: currentColor; stroke-width: 1.8; }
+.goal-resume-mark { display: none; }
+.goalbar.paused .goal-pause-mark { display: none; }
+.goalbar.paused .goal-resume-mark { display: block; }
+.goaleditor { display: flex; align-items: center; gap: 5px; padding-left: 33px; }
+.goaleditor.hidden { display: none; }
+.goaleditor input { flex: 1 1 auto; min-width: 0; height: 30px; padding: 4px 8px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-s); background: var(--surface-2);
+  color: var(--text); font: inherit; font-size: 12px; }
+.goaleditor input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+@media (max-width: 600px) {
+  .goalrow { flex-wrap: wrap; gap: 6px; }
+  .goalrequest { order: 6; flex: 1 0 100%; padding-left: 31px; }
+  .goalpaused { order: 3; }
+  .goaltime { order: 4; margin-left: auto; }
+  .goalactions { order: 5; }
+  .goaleditor { padding-left: 0; }
+}
 .queue-head {
   display: flex; align-items: center; gap: 7px; width: 100%;
   background: none; border: 1px solid var(--line); border-radius: var(--r);
@@ -2411,6 +2490,8 @@ img.pic { animation: plate-in 180ms ease-out; }
  * A line of the menu that turns one item on or off, rather than being chosen from a set. A rule
  * keeps it apart from the lines one may choose, and the switch is at the end of the line. */
 .menu .sep { height: 1px; margin: 4px 6px; background: var(--line-strong); }
+.menu .computer-target-label { padding: 4px 8px 2px; color: var(--text-2); font-size: 11px; }
+.menu .computer-target-note { padding: 2px 8px 5px; color: var(--text-2); font-size: 11px; }
 .menu .badge { display: flex; width: 100%; justify-content: flex-start; }
 .menu button.toggle { color: var(--text-2); }
 .menu button.toggle:hover { color: var(--ink); }
@@ -2424,6 +2505,8 @@ img.pic { animation: plate-in 180ms ease-out; }
 .menu button.toggle.on .sw { background: var(--accent); }
 .menu button.toggle.on .sw::after { transform: translateX(9px);
   background: var(--on-accent); }
+.menu button.browser-open-row { margin-top: 4px; padding-top: 9px;
+  border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; color: var(--ink); }
 .badge .down { width: 11px; height: 11px; margin-left: 1px; opacity: .65; }
 /*
  * The MCP tab of the settings panel: the rows of the servers, the picker of the icon, and the
@@ -2659,6 +2742,15 @@ pre.code.line {
 .sheet .fld .ctl .seg { flex-wrap: wrap; max-width: 100%; }
 .sheet-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center;
   padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.remote-connect-sheet { width: min(560px, 100%); }
+.remote-connect-sheet .fld { grid-template-columns: minmax(0, 1fr); }
+.remote-connect-sheet .fld .ctl { grid-column: 1; }
+.remote-connect-sheet .sheet-head > .svg { flex: 0 0 auto; width: 17px; height: 17px; stroke: var(--ink); }
+.remote-connect-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.remote-connect-title strong { font-size: 13.5px; font-weight: 650; }
+.remote-connect-sheet .sheet-foot { flex-wrap: wrap; }
+.remote-connect-note { min-height: 20px; padding: 6px 0 2px; font-size: 12px; color: var(--dim); }
+.remote-connect-note.bad { color: var(--ink-fail); }
 .foot-note { font-size: 11.5px; color: var(--faint); margin-right: auto; max-width: 60ch; }
 .btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
   border-radius: var(--r-s); border: 1px solid var(--line); background: var(--surface);
@@ -3265,6 +3357,8 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
 </div>
 
 <div class="main" id="main">
+  <canvas class="gridbg" id="gridbg" aria-hidden="true"></canvas>
+  <canvas class="fall" id="fall" aria-hidden="true"></canvas>
   <!--   Where the rain breaks on the chat composer box and on the blocks of the chat. It is above all
     of the chat, receives no pointer events, and holds nothing but the squares of water of the
     moment. -->
@@ -3313,14 +3407,17 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
   </div>
   <span class="rule"></span>
   
-  <button class="mark-btn" id="modelbtn" title="Settings of this model" aria-label="Settings of this model">
-    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 4.6h7.2M12.6 4.6h.8M2.6 11.4h.8M6.2 11.4h7.2"/><circle cx="11.2" cy="4.6" r="1.6"/><circle cx="4.6" cy="11.4" r="1.6"/></svg>
+  <button class="mark-btn" id="generalSidebarBtn" type="button" title="General sidebar" aria-label="General sidebar" aria-expanded="false" aria-controls="generalSidebar">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.9" width="12.6" height="10.2" rx="2.1"/><path d="M10 2.9v10.2"/></svg>
   </button>
   <button class="mark-btn" id="settingsbtn" title="Settings of the program" aria-label="Settings of the program">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.45" d="M14.86 6.60L14.86 9.40L12.97 9.37L12.48 10.55L13.84 11.86L11.86 13.84L10.55 12.48L9.37 12.97L9.40 14.86L6.60 14.86L6.63 12.97L5.45 12.48L4.14 13.84L2.16 11.86L3.52 10.55L3.03 9.37L1.14 9.40L1.14 6.60L3.03 6.63L3.52 5.45L2.16 4.14L4.14 2.16L5.45 3.52L6.63 3.03L6.60 1.14L9.40 1.14L9.37 3.03L10.55 3.52L11.86 2.16L13.84 4.14L12.48 5.45L12.97 6.63Z"/><circle cx="8" cy="8" r="2.15"/></svg>
   </button>
   <button class="mark-btn" id="themebtn" title="The colours the page is drawn in. Click for the next theme." aria-label="The colours the page is drawn in">
     <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path stroke-width="1.4" d="M8 1.33C4.33 1.33 1.33 4.33 1.33 8s2.99 6.67 6.67 6.67c.92 0 1.67-.75 1.67-1.67 0-.41-.15-.8-.43-1.11-.05-.07-.09-.14-.09-.22 0-.19.15-.33.33-.33h1.19c2.02 0 3.67-1.65 3.67-3.67C14.33 4.01 11.34 1.33 8 1.33Z"/><circle cx="4.3" cy="8.1" r=".95" fill="currentColor"/><circle cx="6.2" cy="5.2" r=".95" fill="currentColor"/><circle cx="9.6" cy="4.9" r=".95" fill="currentColor"/><circle cx="11.8" cy="7.3" r=".95" fill="currentColor"/></svg>
+  </button>
+  <button class="mark-btn" id="remoteConnectBtn" type="button" title="Connect to remote program" aria-label="Connect to remote program">
+    <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.2" width="8.5" height="6.8" rx="1.1"/><path d="M4.4 12.1h3.1M5.95 9v3.1M10.8 5.2h1.4a2.1 2.1 0 0 1 2.1 2.1v1.1a2.1 2.1 0 0 1-2.1 2.1h-1.1M11.2 8.4l-1.7 2 1.7 2"/></svg>
   </button>
 </header>
 
@@ -3336,18 +3433,10 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
 
   <!-- The chat in use. The other chats are in the side bar at the left, and are not drawn beside it. -->
   <div class="stage" id="stage">
-    <!--   What falls behind the text of the chat. The canvas covers all of the place the chat is in, is
-      under every message, and is informed by the Chatting setting which way it falls. It never
-      catches the pointer. -->
     <!--   The field of random digits the cursor uncovers. It is the deepest thing in the chat, and
       only the numbers the aura about the pointer reaches are drawn; the Chatting setting decides
       whether there are any at all. -->
-    <!--   The grid the background of the chat is drawn with: hairlines in the colour of the theme, in
-      the place of the solid colour, while the Chatting setting asks for it. It is under the
-      digits, and it is the deepest thing here. -->
-    <canvas class="gridbg" id="gridbg" aria-hidden="true"></canvas>
     <canvas class="digits" id="digits" aria-hidden="true"></canvas>
-    <canvas class="fall" id="fall" aria-hidden="true"></canvas>
     <!--   The summarisations of the chat. They remain out of the text, on a line at the right of the
       chat: one node for one time the conversation was created short. -->
     <!--   The messages the user sent. They remain out of the text, on a line in the left gutter
@@ -3385,7 +3474,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
   <!--   The window an image or a text file is checked in. It covers the chat and holds one item: the
     image at the size it is, or the text of a file as they is now. A click outside it, the marker
     of closing, or the key of escape puts it away again. -->
-  <div class="viewer hidden" id="viewer" role="dialog" aria-modal="true" aria-labelledby="lookname">
+  <div class="viewer hidden" id="viewer" role="region" aria-label="Opened file">
     <div class="look">
       <div class="look-head">
         <span class="look-name" id="lookname"></span>
@@ -3438,6 +3527,39 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
         </button>
       </div>
       <div class="ask-note" id="asknote"></div>
+    </div>
+
+    <div class="goalbar hidden" id="goalbar" aria-label="Active goal">
+      <div class="goalrow">
+        <span class="goalmark" aria-hidden="true">
+          <svg class="svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.7"/><circle cx="8" cy="8" r="2.2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2"/></svg>
+        </span>
+        <span class="goallabel">Pursuing goal</span>
+        <span class="goalrequest" id="goalrequest"></span>
+        <span class="goalpaused hidden" id="goalpaused">Paused</span>
+        <span class="goaltime" id="goaltime"></span>
+        <span class="goalactions">
+          <button class="goalaction" id="goaledit" type="button" title="Edit the goal" aria-label="Edit the goal">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="m10.9 2.6 2.5 2.5M3 13l2.7-.6 7.4-7.4a1.8 1.8 0 0 0-2.5-2.5l-7.4 7.4L3 13z"/></svg>
+          </button>
+          <button class="goalaction" id="goalpause" type="button" title="Pause the goal" aria-label="Pause the goal">
+            <svg class="svg goal-pause-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 3.2v9.6M10.8 3.2v9.6"/></svg>
+            <svg class="svg goal-resume-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3.1 7.3 4.9L5 12.9z"/></svg>
+          </button>
+          <button class="goalaction" id="goalclear" type="button" title="Clear the goal" aria-label="Clear the goal">
+            <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+        </span>
+      </div>
+      <form class="goaleditor hidden" id="goaleditor">
+        <input id="goaledittext" type="text" maxlength="10000" aria-label="Edit goal request">
+        <button class="goalaction" id="goalsave" type="submit" title="Save and continue the edited goal" aria-label="Save the edited goal">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.2 3.1 3.1L13 4.4"/></svg>
+        </button>
+        <button class="goalaction" id="goaleditcancel" type="button" title="Cancel editing" aria-label="Cancel editing the goal">
+          <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </form>
     </div>
 
     <!--   The messages the user has queued. A model that is still writing takes them one after
@@ -3522,6 +3644,14 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
               <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 1 0 0-11.6zM2.2 8h11.6M8 2.2c2.5 3.4 2.5 8.8 0 11.6M8 2.2c-2.5 3.4-2.5 8.8 0 11.6"/></svg>
               <span id="searchtext">Search</span>
             </button>
+            <div class="menuwrap" id="agenticwrap">
+              <button class="badge" id="agentic" title="Choose Browser use or Computer use for this chat.">
+                <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.1a5.9 5.9 0 1 0 0 11.8 5.9 5.9 0 1 0 0-11.8zM5.2 8h5.6M8 5.2v5.6M2.8 4.2l2 1M13.2 4.2l-2 1M2.8 11.8l2-1M13.2 11.8l-2-1"/></svg>
+                <span id="agentictext">Agentic</span>
+                <svg class="svg down" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.4 8 10.4 12 6.4"/></svg>
+              </button>
+              <div class="menu hidden" id="agenticmenu"></div>
+            </div>
             <div class="menuwrap" id="mcpwrap">
               <button class="badge" id="mcp" title="The user's own servers, reached over MCP. Click to switch one on or off for this chat. A server runs in the program, not in the sandbox of a command.">
                 <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.1 2v3.2M9.9 2v3.2M4.4 5.2h7.2v2.4a3.6 3.6 0 0 1-7.2 0zM8 11.2V14"/></svg>
@@ -3726,7 +3856,7 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
           <span class="sub">The model can colour a few words of its answer: green, light green, red or light red. Turn this off to read the answer with no colour. The markers stay in the conversation that goes back to the model, and the model is informed nothing about the colours.</span>
           <div class="ctl"><input id="fColourText" type="checkbox"></div></div>
         <div class="fld"><span class="lbl">Show the work</span>
-          <span class="sub">How the model's work is presented. Plain mode shows thinking panels and each tool call in its own block. Corporate mode hides private thinking and shows one card per answer; its title follows the current action and each progress message appears inside as its own ordered sub-block. The final answer appears as a normal chat message outside the card.</span>
+          <span class="sub">How the model's work is presented. Plain mode shows thinking panels and each tool call in its own block. Corporate mode groups thinking and tool activity into cards between the model’s chat messages. Progress updates and final answers appear directly in the chat.</span>
           <div class="ctl"><select id="fDisplay">
             <option value="plain">Plain</option>
             <option value="corporate">Corporate</option>
@@ -3989,8 +4119,12 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
           <summary>Advanced</summary>
           <div class="adv-body">
             <div class="fld"><span class="lbl">Tensor parallelism</span>
-              <span class="sub">Split the model across every card that is on. Off keeps the model on the first card only.</span>
-              <div class="ctl"><input id="mTensor" type="checkbox"></div></div>
+              <span class="sub">Choose how llama.cpp splits the model across the selected graphics cards. Layer is the default; row splits weight rows in parallel; tensor splits weights and KV in parallel (experimental).</span>
+              <div class="ctl"><select id="mSplitMode">
+                <option value="layer">Layer (default)</option>
+                <option value="row">Row</option>
+                <option value="tensor">Tensor</option>
+              </select></div></div>
           </div>
         </details>
 
@@ -4223,7 +4357,37 @@ body.glass .menu, body.glass .sheet { background: rgba(40,52,67,.72); border-rad
     <div class="sbody" id="planWordsBox"></div>
   </div>
 </div>
-<script src="corporate.js"></script>
+<div class="overlay hidden" id="remoteConnectOverlay">
+  <div class="sheet remote-connect-sheet" role="dialog" aria-modal="true" aria-labelledby="remoteConnectTitle">
+    <div class="sheet-head">
+      <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.7" y="2.2" width="8.5" height="6.8" rx="1.1"/><path d="M4.4 12.1h3.1M5.95 9v3.1M10.8 5.2h1.4a2.1 2.1 0 0 1 2.1 2.1v1.1a2.1 2.1 0 0 1-2.1 2.1h-1.1M11.2 8.4l-1.7 2 1.7 2"/></svg>
+      <div class="remote-connect-title">
+        <strong id="remoteConnectTitle">Connect to remote program</strong>
+        <span class="sub">Open an Autumn Natter running on your local network.</span>
+      </div>
+      <button class="mark-btn x" id="remoteConnectClose" type="button" title="Close" aria-label="Close">
+        <svg class="svg" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body">
+      <div class="sec">Remote address</div>
+      <div class="fld wide">
+        <span class="lbl">Web address</span>
+        <span class="sub">Enter the same address you would open in a browser, such as http://192.168.1.25:8723.</span>
+        <div class="ctl"><input class="txt" id="remoteAddress" type="text" autocomplete="url" spellcheck="false" placeholder="http://192.168.1.25:8723"></div>
+      </div>
+      <div class="remote-connect-note" id="remoteConnectNote" role="status" aria-live="polite"></div>
+    </div>
+    <div class="sheet-foot">
+      <span class="foot-note">The remote computer must be running in web (--remote) mode.</span>
+      <button class="btn" id="remoteConnectCancel" type="button">Cancel</button>
+      <button class="btn go" id="remoteConnectGo" type="button">Connect</button>
+    </div>
+  </div>
+</div>
+<script src="corporate.js?v=8"></script>
+<script src="agent-pointer.js"></script>
+<script src="agentic-browser.js?v=6"></script>
 <script>'use strict';
 
 // The window sends requests to the engine through Tauri, and not over the network. The names of
@@ -4240,13 +4404,15 @@ var inWindow = !!(window.__TAURI__ && window.__TAURI__.core);
 // The parts of the page that stay in place. Their text is written again on every draw.
 var ids = ['model', 'modelChoice', 'modelChoiceText', 'modelMenu', 'kind', 'repo', 'repoChoice', 'repoChoiceText', 'repoMenu', 'newrepo', 'title', 'ctx', 'ctxtext', 'ctxused', 'ctxtail', 'ctxpct', 'ctxpctnum', 'ctxfill', 'ctxcut',
   'stage', 'thread', 'col', 'greet', 'homenote', 'dot', 'status', 'rate',
-  'unloadmodel', 'settingsbtn', 'modelbtn', 'themebtn', 'timeline', 'userline',
-  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
+  'unloadmodel', 'settingsbtn', 'themebtn', 'remoteConnectBtn', 'timeline', 'userline',
+  'code', 'codetext', 'codewrap', 'codemenu', 'codemenu-caret', 'search', 'searchtext', 'agentic', 'agentictext', 'agenticwrap', 'agenticmenu', 'sandbox', 'sandboxtext', 'sandboxwrap', 'sandboxmenu',
   'mcp', 'mcptext', 'mcpwrap', 'mcpmenu',
   'plus', 'pluswrap', 'plusmenu', 'plusattach', 'plussources', 'pickfiles',
   'rag', 'ragtext',
   'think', 'thinktext', 'thinkwrap',
   'thinkmenu', 'draft', 'send', 'parts', 'queue', 'queuehead', 'queuecount', 'queuelist',
+  'goalbar', 'goalrequest', 'goalpaused', 'goaltime', 'goaledit', 'goalpause', 'goalclear',
+  'goaleditor', 'goaledittext', 'goalsave', 'goaleditcancel',
   'badges', 'bleft', 'bmid', 'bright',
   'ask', 'asktitle', 'askwait', 'askchoices', 'askdraft', 'asksend', 'asknote',
   'viewer', 'lookname', 'lookkind', 'lookturn', 'lookprev', 'lookcount', 'looknext',
@@ -4300,6 +4466,8 @@ var rev = -1;          // what the page has seen last
 var timer = null;      // the next poll
 var pending = false;   // only one poll at a time
 var cur = null;        // the last state
+var goalClock = { elapsed: 0, at: 0 };
+var goalEditorChat = '';
 // Chatting. The two switches of the Chatting section of the settings, as the engine gives them.
 // A panel that is folded as it arrives is closed from the first look, and the user opens it
 // with a click on its header. The number of characters where a paste of text into the chat
@@ -4312,11 +4480,22 @@ var stick = true;      // the words of the chat are followed while true
 var lastChat = '';     // the chat the thread shows, to know which way it went
 var lastIds = [];      // the chats of the draw before this one, for the same reason
 
-function post(path, body) {
+function post(path, body, onResult) {
   var name = path.replace(/^\/api\//, '');
   invoke('action', { path: name, body: body || {} })
-    .then(function () { poll(); }, function () { poll(); });
+    .then(function (result) {
+      if (onResult) { onResult(result); }
+      poll();
+    }, function (error) {
+      if (onResult) { onResult({ ok: false, status: String(error) }); }
+      poll();
+    });
 }
+
+window.addEventListener('autumn-agentic-action', function (event) {
+  var action = event.detail || {};
+  if (typeof action.path === 'string') { post(action.path, action.body || {}, action.onResult); }
+});
 
 function poll() {
   if (pending) { return; }
@@ -4420,9 +4599,11 @@ function draw(s) {
   drawContext(s);
   drawProgress(s);
   drawBadges(s);
+  window.dispatchEvent(new CustomEvent('autumn-agentic-state', { detail: s }));
   // The question the model has put to the user is above the chat composer, and the wait it set
   // is counted down under the question.
   drawAsk(s);
+  drawGoal(s);
 
   // Planning mode. The row at the top of the conversation and the border of the chat composer
   // say which mode the chat is in.
@@ -4470,6 +4651,79 @@ function draw(s) {
   drawTimeline(s);
   drawUserLine(s);
 }
+
+function drawGoal(s) {
+  if (!el.goalbar) { return; }
+  var goal = s.chat && s.chat.goal;
+  var visible = !!goal && !s.home;
+  el.goalbar.classList.toggle('hidden', !visible);
+  if (!visible) {
+    el.goaleditor.classList.add('hidden');
+    goalEditorChat = '';
+    goalClock = { elapsed: 0, at: Date.now() };
+    return;
+  }
+  var request = String(goal.request || '');
+  el.goalbar.classList.toggle('paused', !!goal.paused);
+  el.goalrequest.textContent = request;
+  el.goalrequest.title = request;
+  el.goalpaused.classList.toggle('hidden', !goal.paused);
+  el.goalpause.title = goal.paused ? 'Resume the goal' : 'Pause the goal';
+  el.goalpause.setAttribute('aria-label', el.goalpause.title);
+  goalClock = { elapsed: Math.max(0, Number(goal.elapsed) || 0), at: Date.now() };
+  if (goalEditorChat && goalEditorChat !== s.chat.id) {
+    el.goaleditor.classList.add('hidden');
+    goalEditorChat = '';
+  }
+  updateGoalClock();
+}
+
+function updateGoalClock() {
+  if (!el.goaltime || !cur || !cur.chat || !cur.chat.goal || !goalClock.at) { return; }
+  var seconds = goalClock.elapsed + Math.floor((Date.now() - goalClock.at) / 1000);
+  var hours = Math.floor(seconds / 3600);
+  var minutes = Math.floor((seconds % 3600) / 60);
+  var words;
+  if (seconds < 60) { words = seconds + 's'; }
+  else if (hours === 0) { words = minutes + 'm'; }
+  else if (hours < 24) { words = hours + 'h' + (minutes ? ' ' + minutes + 'm' : ''); }
+  else { words = Math.floor(hours / 24) + 'd' + (hours % 24 ? ' ' + (hours % 24) + 'h' : ''); }
+  el.goaltime.textContent = 'for ' + words;
+}
+
+function openGoalEditor() {
+  if (!cur || !cur.chat || !cur.chat.goal) { return; }
+  goalEditorChat = cur.chat.id;
+  el.goaledittext.value = cur.chat.goal.request || '';
+  el.goaleditor.classList.remove('hidden');
+  el.goaledittext.focus();
+  el.goaledittext.select();
+}
+
+function closeGoalEditor() {
+  el.goaleditor.classList.add('hidden');
+  goalEditorChat = '';
+}
+
+el.goaledit.addEventListener('click', openGoalEditor);
+el.goaleditcancel.addEventListener('click', closeGoalEditor);
+el.goaleditor.addEventListener('submit', function (event) {
+  event.preventDefault();
+  var request = String(el.goaledittext.value || '').trim();
+  if (!request) { el.goaledittext.focus(); return; }
+  closeGoalEditor();
+  post('/api/goal', { op: 'edit', request: request });
+});
+el.goaledittext.addEventListener('keydown', function (event) {
+  if (event.key === 'Escape') { event.preventDefault(); closeGoalEditor(); }
+});
+el.goalpause.addEventListener('click', function () {
+  if (cur && cur.chat && cur.chat.goal) {
+    post('/api/goal', { op: cur.chat.goal.paused ? 'resume' : 'pause' });
+  }
+});
+el.goalclear.addEventListener('click', function () { post('/api/goal', { op: 'clear' }); });
+window.setInterval(updateGoalClock, 1000);
 
 // Chatting. The switches of the Chatting section are read again with every state, so a change
 // in the settings panel is followed without a reload of the page. A state of an older engine
@@ -4666,12 +4920,21 @@ function fallPaths() {
 // The size of the place the leaves fall over, and of the canvas that means it. The canvas is
 // kept at the size of the computer's own pixels, so the edge of a leaf is as fine as the screen
 // can make it.
+function sizeFallCanvas(canvas, stage, main) {
+  var top = stage.offsetTop;
+  var tall = main.clientHeight - top;
+  canvas.style.top = top + 'px';
+  canvas.style.height = tall + 'px';
+  return tall;
+}
+
 function fallSize() {
   var stage = document.getElementById('stage');
+  var main = document.getElementById('main');
   var canvas = fall.canvas || document.getElementById('fall');
-  if (!stage || !canvas) { return false; }
-  var wide = Math.max(0, Math.round(stage.clientWidth));
-  var tall = Math.max(0, Math.round(stage.clientHeight));
+  if (!stage || !main || !canvas || stage.offsetParent === null) { return false; }
+  var wide = main.clientWidth;
+  var tall = sizeFallCanvas(canvas, stage, main);
   var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   if (wide === fall.w && tall === fall.h && dpr === fall.dpr) { return true; }
   fall.w = wide;
@@ -4924,8 +5187,8 @@ function rainSize() {
   if (!stage || !main || !canvas || !splash) { return false; }
   var s = stage.getBoundingClientRect();
   var m = main.getBoundingClientRect();
-  var wide = Math.max(0, Math.round(s.width));
-  var tall = Math.max(0, Math.round(s.height));
+  var wide = main.clientWidth;
+  var tall = sizeFallCanvas(canvas, stage, main);
   var sw = Math.max(0, Math.round(m.width));
   var sh = Math.max(0, Math.round(m.height));
   var offX = Math.round(s.left - m.left);
@@ -4998,7 +5261,7 @@ function rainSurfaces() {
   var box = document.getElementById('box');
   if (box) {
     var r = box.getBoundingClientRect();
-    if (r.width > 8) { out.push({ x: r.left - s.left, w: r.width, y: r.top - s.top }); }
+    if (r.width > 8) { out.push({ x: r.left - s.left, w: r.width, y: r.top - s.top, composer: true }); }
   }
   // A block is worth a splash at its top edge only while the window shows it: there is no sense
   // in a splash at an edge the user cannot see.
@@ -5014,11 +5277,11 @@ function rainSurfaces() {
 // The edge a drop met between the last frame and this one, or nothing at all when it fell past
 // none. Where more than one edge was met, the highest is the one the drop came to first.
 function rainHit(x, before, after) {
-  var found = 0;
+  var found = null;
   for (var i = 0; i < rain.surfaces.length; i++) {
     var one = rain.surfaces[i];
     if (x < one.x || x > one.x + one.w) { continue; }
-    if (one.y >= before && one.y <= after && (!found || one.y < found)) { found = one.y; }
+    if (one.y > before && one.y <= after && (!found || one.y < found.y)) { found = one; }
   }
   return found;
 }
@@ -5123,12 +5386,7 @@ function rainStep(now) {
   } else {
     rain.grown = 0;
   }
-  // A drop that has no edge to meet is let go of a little below the chat, and one that has the
-  // chat composer box below the chat is kept as far as that.
   var tail = rain.h + 24;
-  for (var e = 0; e < rain.surfaces.length; e++) {
-    if (rain.surfaces[e].y + 24 > tail) { tail = rain.surfaces[e].y + 24; }
-  }
   rain.ctx.clearRect(0, 0, rain.w, rain.h);
   rain.sctx.clearRect(0, 0, rain.sw, rain.sh);
   var kept = [];
@@ -5140,8 +5398,10 @@ function rainStep(now) {
     one.y += one.speed * dt;
     var met = rainHit(one.x, before, one.y);
     if (met) {
-      if (chatting.rainSplash) { rainSpur(one.x, met); }
-      continue;
+      if (chatting.rainSplash) { rainSpur(one.x, met.y); }
+      // The composer masks the falling streak. Keep it in the background so it can
+      // reappear below the box after the splash on its top edge.
+      if (!met.composer) { continue; }
     }
     if (one.y - one.len * RAIN_CELL > tail) { continue; }
     rainDraw(one);
@@ -5721,6 +5981,68 @@ function closeToolMenu() {
   if (el.codemenu) { el.codemenu.classList.add('hidden'); }
 }
 
+function fillAgenticMenu(s) {
+  if (!el.agenticmenu) { return; }
+  el.agenticmenu.innerHTML = '';
+  var held = s.tool_switches || {};
+  el.agenticmenu.appendChild(toolLine('browser_use', 'Browser use',
+    'Search public pages, read their text and links, manage tabs, and read or edit files in this chat’s workspace.', held.browser_use === true));
+  if (s.computer_use_available !== false) el.agenticmenu.appendChild(toolLine('computer_use', 'Computer use',
+    'Requires a vision-enabled model. Lets the model inspect screenshots and control mouse and keyboard on this computer; enable only when you want desktop interaction.', held.computer_use === true));
+  if (held.browser_use === true) {
+    var openBrowser = make('button', 'toggle browser-open-row');
+    openBrowser.type = 'button';
+    openBrowser.setAttribute('data-agentic-browser-open', '');
+    openBrowser.title = 'Open the browser panel and follow the pages the model reads.';
+    var browserWord = make('span', 'word');
+    browserWord.textContent = 'Open browser panel';
+    openBrowser.appendChild(browserWord);
+    el.agenticmenu.appendChild(openBrowser);
+  }
+  if (s.computer_workspace_available === true) {
+    var target = s.computer_target || 'desktop';
+    el.agenticmenu.appendChild(make('div', 'sep'));
+    var group = make('div');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Computer use target');
+    var label = make('div', 'computer-target-label');
+    label.textContent = 'Computer use target';
+    group.appendChild(label);
+    [['desktop', 'Real desktop'], ['workspace', 'Private workspace']].forEach(function (option) {
+      var selected = option[0] === target;
+      var button = make('button', selected ? 'now' : '');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.appendChild(mark('M3.4 8.4 6.4 11.4 12.6 4.8', 'tick'));
+      var word = make('span', 'word');
+      word.textContent = option[1];
+      button.appendChild(word);
+      button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (!selected) { post('/api/computer_target', { target: option[0] }); }
+      });
+      group.appendChild(button);
+    });
+    if (s.computer_cursor_shared === true) {
+      var note = make('div', 'computer-target-note');
+      note.textContent = 'Real desktop shares your cursor on Wayland.';
+      group.appendChild(note);
+    }
+    el.agenticmenu.appendChild(group);
+  }
+}
+
+function openAgenticMenu() {
+  if (!cur) { return; }
+  fillAgenticMenu(cur);
+  el.agenticmenu.classList.remove('hidden');
+  menuFitOpen();
+}
+
+function closeAgenticMenu() {
+  if (el.agenticmenu) { el.agenticmenu.classList.add('hidden'); }
+}
+
 // The badge itself: the entry point to every tool of the program. The tip reports how many the
 // user has taken out of the chat, for a badge that is on can still be hiding a tool.
 function drawTools(s) {
@@ -5751,6 +6073,10 @@ function drawTools(s) {
 function drawBadges(s) {
   drawTools(s);
   el.search.classList.toggle('on', !!s.search);
+  var agenticOn = !!((s.tool_switches || {}).browser_use || (s.tool_switches || {}).computer_use);
+  el.agentic.classList.toggle('on', agenticOn);
+  el.agentic.title = agenticOn ? 'Agentic tools are enabled for this chat. Click to choose Browser use and Computer use.' : 'Choose Browser use or Computer use for this chat.';
+  if (el.agenticmenu && !el.agenticmenu.classList.contains('hidden')) { fillAgenticMenu(s); }
   el.sandbox.classList.toggle('on', !!s.sandbox);
   el.sandbox.classList.toggle('off', !!s.sandbox && !s.sandbox_available);
   // The badge is a door to the settings of the sandbox, so its text reports what a command of
@@ -6040,17 +6366,19 @@ function gridRgba(one) {
     + ',' + (Math.round(one[3] * 1000) / 1000) + ')';
 }
 
-// The canvas of the grid, at the size of the computer's own pixels and of the place the chat is
-// in. Nothing is drawn where there is no such place: a chat that is not open, a window that is
-// hidden, or a stage that has been folded away.
+// The grid runs from the top of the thread to the bottom of the chat, including the dock.
+// The backing canvas uses the computer's own pixels. It stays empty when the chat is hidden.
 function gridSize() {
   var stage = document.getElementById('stage');
+  var main = document.getElementById('main');
   var canvas = grid.canvas || document.getElementById('gridbg');
-  if (!stage || !canvas) { return false; }
+  if (!stage || !main || !canvas) { return false; }
   if (stage.offsetParent === null) { return false; }
-  var s = stage.getBoundingClientRect();
-  var wide = Math.max(0, Math.round(s.width));
-  var tall = Math.max(0, Math.round(s.height));
+  var top = stage.offsetTop;
+  var wide = main.clientWidth;
+  var tall = main.clientHeight - top;
+  canvas.style.top = top + 'px';
+  canvas.style.height = tall + 'px';
   var dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   if (grid.ctx && wide === grid.w && tall === grid.h && dpr === grid.dpr) { return true; }
   if (wide <= 0 || tall <= 0) { return false; }
@@ -6236,12 +6564,17 @@ function gridSetting(on) {
   gridGoOn();
 }
 
-// The place the chat is in is the only thing the grid is sized to, so a window that changes
-// shape is asked after and nothing else is.
+// The grid follows changes to the window and to the layout of the chat.
 (function gridWire() {
-  window.addEventListener('resize', function () {
+  function resize() {
     if (grid.want) { gridGoOn(); }
-  });
+  }
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) {
+    var watch = new ResizeObserver(resize);
+    watch.observe(document.getElementById('main'));
+    watch.observe(document.getElementById('stage'));
+  }
 })();
 
 // ------------------------------------------------------- the digits under the cursor
@@ -7251,7 +7584,7 @@ function thinkHeadSay(panel, ms, over, given) {
   }
   var words = thoughtWords(ms, over);
   if (cap.textContent !== words) { cap.textContent = words; }
-  if (head.classList.contains('busy') === over) { head.classList.toggle('busy', !over); }
+  head.classList.toggle('busy', !over);
   var num = cnt.querySelector('.num');
   if (num && num.textContent !== String(runs)) { num.textContent = String(runs); }
   if (cnt.classList.contains('hidden') === (runs > 0)) { cnt.classList.toggle('hidden', runs === 0); }
@@ -7411,6 +7744,14 @@ var TOOL_SHAPES = {
     head: 'Searching the web: ', word: 'query', end: 'result',
     empty: 'nothing to search for', begun: 'the search words'
   },
+  browser_use: {
+    mark: 'M2 3.4h12v9.2H2zM2 6h12M4.2 4.7h.1M6.2 4.7h.1M5 8l2 1.5L5 11M8.5 11h2.2',
+    head: 'Using browser: ', word: 'action', end: 'result', empty: 'browser action', begun: 'browser action'
+  },
+  computer_use: {
+    mark: 'M8 2a6 6 0 1 0 0 12 6 6 0 1 0 0-12zM5.5 8h5M8 5.5v5M2 4l2 1M14 4l-2 1M2 12l2-1M14 12l-2-1',
+    head: 'Using computer: ', word: 'action', end: 'result', empty: 'computer action', begun: 'computer action'
+  },
   // An image, or a number of them, handed over to the model. The text is the
   // name of the first image, and the result is the result of the run: the
   // block never carries an image, only the lines that say what was read of them.
@@ -7470,6 +7811,21 @@ var TOOL_SHAPES = {
     head: 'Writing the steps: ', done: 'Wrote the steps: ', pluralDone: 'Wrote the steps: ',
     word: 'steps', end: 'result',
     empty: 'no steps', begun: 'the steps being written', steps: true
+  },
+  set_goal_criteria: {
+    mark: 'M2.6 3.6h7.4M2.6 8h7.4M2.6 12.4h4.6M11.4 11.5l1.5 1.5 3-3.4',
+    head: 'Setting acceptance criteria', done: 'Set acceptance criteria', word: 'criteria', end: 'result',
+    empty: 'acceptance criteria', begun: 'goal criteria'
+  },
+  complete_goal: {
+    mark: 'M2.8 8.2l3.2 3.2 7.2-7.2',
+    head: 'Checking goal completion', done: 'Verified goal completion', word: 'evidence', end: 'result',
+    empty: 'the active goal', begun: 'goal completion'
+  },
+  pause_goal: {
+    mark: 'M8 13.2v.2M5.8 5.8a2.2 2.2 0 1 1 3.8 1.5c-.9.9-1.6 1.2-1.6 2.5',
+    head: 'Waiting for user input', done: 'Paused for user input', word: 'question', end: 'result',
+    empty: 'essential input', begun: 'a question for the user'
   },
   // The five tools of the composition suite. The engine names each call - what it
   // works on and which composition it is in - so the header of the block carries
@@ -8808,7 +9164,7 @@ function placeCode(holder) {
 // The new text of the block that can still grow. They are given as they were written, and put
 // on the page as parts. A block of code is painted again whole, so its colours stay right while
 // the text arrive; a block of text takes the new text at its end, behind a fade.
-function putTail(holder, written, rebuilt) {
+function putTail(holder, written, rebuilt, fadeRebuilt) {
   if (holder.classList.contains('code')) {
     // The place the block was at is kept across the painting, for a block of code the user was
     // reading in the middle must not be sent back to its first line because a colour was put on
@@ -8822,10 +9178,10 @@ function putTail(holder, written, rebuilt) {
   var parts = inlineParts(written);
   var want = inlineWords(parts);
   if (rebuilt) {
-    // The block arrived, so its text is put on again and fade in. A link is put on whole, for
-    // the text of it must remains as a link and not as text.
+    // A changed Markdown shape may rebuild text the user has already read.
+    // Only fade the first rendering, so completed inline formatting does not flash it again.
     holder.textContent = '';
-    inlineInto(holder, parts, true);
+    inlineInto(holder, parts, fadeRebuilt);
     return;
   }
   var have = holder.textContent;
@@ -8851,6 +9207,7 @@ function writeBlocks(node, state, text) {
   var tail = tailText(made);
   var holder = null;
   var rebuilt = false;
+  var fadeRebuilt = !state.shape;
   if (shape !== state.shape) {
     state.shape = shape;
     node.innerHTML = '';
@@ -8860,7 +9217,7 @@ function writeBlocks(node, state, text) {
   } else if (made.length) {
     holder = holderOf(lastBlock(node));
   }
-  if (holder) { putTail(holder, tail, rebuilt); }
+  if (holder) { putTail(holder, tail, rebuilt, fadeRebuilt); }
   settle(node);
   return holder;
 }
@@ -8958,10 +9315,23 @@ function placeWrites() {
   }
 }
 
-// The state has new text for the answer that is arriving.
+// The live buffer can lose text when its saved copy takes over after a tool. Reconcile the
+// visible prefix before writing on, so the words the buffer gave back do not remain on screen.
 function feedInk(m) {
   ink.said = String(m.body || '');
-  ink.musing = String(m.reasoning || '');
+  var nextMusing = String(m.reasoning || '');
+  var visibleMusing = ink.musing.slice(0, ink.shownMusing);
+  var sameMusing = 0;
+  while (sameMusing < visibleMusing.length && sameMusing < nextMusing.length
+      && visibleMusing.charAt(sameMusing) === nextMusing.charAt(sameMusing)) {
+    sameMusing++;
+  }
+  var replaceThought = sameMusing < visibleMusing.length;
+  ink.musing = nextMusing;
+  if (replaceThought) {
+    ink.shownMusing = sameMusing;
+    writeThought();
+  }
   ink.ms = ink.base + (Number(m.reasoning_ms) || 0);
   ink.done = !!m.reasoning_done;
   if (ink.words) {
@@ -9070,13 +9440,14 @@ function liveMessage(s) {
   return {
     id: 'live', role: 'Assistant', body: s.live || '', reasoning: s.reasoning || '',
     reasoning_ms: s.reasoning_ms || 0, reasoning_done: !!s.reasoning_done,
+    thought_offsets: s.thought_offsets || [],
     tool: '', tools: s.live_tools || [], mono: false, failed: false, when: '',
     work: s.live_work || [], work_head: s.live_work_head || '',
   };
 }
 
-// The messages the thread is made of. The thread and the one block of an answer are drawn from
-// the same list, so a block put on the page reports what the rows of the answer say.
+// The messages the thread is made of. Both displays use the same list, including the
+// assistant message still being written.
 function threadItems() {
   var s = cur || {};
   var items = (s.messages || []).slice();
@@ -9091,6 +9462,8 @@ function threadItems() {
     held.id = 'live-work';
     held.body = '';
     held.reasoning = '';
+    held.reasoning_ms = 0;
+    held.thought_offsets = [];
     held.tools = [];
     var place = items.length;
     while (place > 0 && items[place - 1].role === 'Summary') { place--; }
@@ -9136,14 +9509,13 @@ function welcomeMock(kind) {
   }
   if (kind === 'corporate') {
     box.innerHTML = '<svg class="wmock" viewBox="0 0 220 112" xmlns="http://www.w3.org/2000/svg">'
-      + '<rect x="10" y="10" width="150" height="16" rx="4" fill="currentColor" opacity=".22"/>'
-      + '<rect x="10" y="34" width="200" height="68" rx="7" fill="currentColor" opacity=".12"/>'
-      + '<rect x="18" y="42" width="96" height="6" rx="3" fill="currentColor" opacity=".42"/>'
-      + '<rect x="18" y="58" width="184" height="1" fill="currentColor" opacity=".2"/>'
-      + '<rect x="24" y="64" width="120" height="5" rx="2" fill="currentColor" opacity=".3"/>'
-      + '<rect x="24" y="74" width="150" height="5" rx="2" fill="currentColor" opacity=".3"/>'
-      + '<rect x="18" y="86" width="184" height="1" fill="currentColor" opacity=".2"/>'
-      + '<rect x="24" y="92" width="104" height="5" rx="2" fill="currentColor" opacity=".3"/></svg>';
+      + '<rect x="94" y="10" width="116" height="14" rx="4" fill="currentColor" opacity=".22"/>'
+      + '<path d="m12 39 3 3-3 3m0 27 3 3-3 3" fill="none" stroke="currentColor" opacity=".55"/>'
+      + '<rect x="23" y="40" width="78" height="4" rx="2" fill="currentColor" opacity=".45"/>'
+      + '<rect x="10" y="55" width="154" height="4" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="23" y="73" width="93" height="4" rx="2" fill="currentColor" opacity=".45"/>'
+      + '<rect x="10" y="90" width="172" height="4" rx="2" fill="currentColor" opacity=".3"/>'
+      + '<rect x="10" y="99" width="118" height="4" rx="2" fill="currentColor" opacity=".3"/></svg>';
     return box;
   }
   // The five themes: the background of the page and the text upon it.
@@ -9218,10 +9590,10 @@ function drawWelcome() {
   screen.appendChild(word);
 
   var modes = welcomePart('How the work is shown',
-    'The plain way shows the model thoughts and each command, search and edit in its own block. The corporate way keeps each progress update in an ordered sub-block inside one card, then shows the final answer as a normal chat message.');
+    'The plain way shows the model thoughts and each command, search and edit in its own block. The corporate way shows messages directly in the chat, with activity cards that fold away thinking and tool work.');
   var modeCards = make('div', 'wcards');
   modeCards.appendChild(welcomeCard('display', 'plain', 'plain', 'Plain', 'The thoughts and the calls, all of them, in the open.'));
-  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'One card per answer, with each assistant update inside.'));
+  modeCards.appendChild(welcomeCard('display', 'corporate', 'corporate', 'Corporate', 'Activity cards between the model’s chat messages.'));
   modes.appendChild(modeCards);
   screen.appendChild(modes);
 
@@ -9586,8 +9958,10 @@ var answerEdit = null;
 
 function editAnswer(m) {
   if (answerEdit) { answerEdit(); }
-  var host = el.col.querySelector('.answer-words[data-mid="' + m.id + '"]');
+  var hosts = Array.from(el.col.querySelectorAll('.answer-words[data-mid="' + m.id + '"]'));
+  var host = hosts.shift();
   if (!host) { return; }
+  for (var other of hosts) { other.parentElement.hidden = true; }
   var was = host.innerHTML;
   var field = make('textarea', 'answer-edit');
   field.value = m.body;
@@ -9611,19 +9985,24 @@ function editAnswer(m) {
   }
   function shut() {
     if (answerEdit === shut) { answerEdit = null; }
+    for (var other of hosts) { other.parentElement.hidden = false; }
     host.innerHTML = was;
   }
   function write() {
     var words = field.value;
     if (!words.trim()) { return; }
-    answerEdit = null;
-    // The new text is put back through the renderer at once, and not extracted from the chat
-    // again: the row is created anew only when the marker of the row moves, and an answer
-    // written over with as much text as it had leaves the marker where it was.
-    m.body = words;
-    host.innerHTML = '';
-    var cut = blocks(words);
-    for (var n = 0; n < cut.length; n++) { host.appendChild(blockNode(cut[n])); }
+    // Draw the edited words at once while the engine saves them.
+    shut();
+    if (chatting.corporate) {
+      if (m.body !== words.trim()) {
+        m.body = words.trim();
+        m.thought_offsets = [];
+      }
+      drawThread(cur);
+    } else {
+      m.body = words;
+      host.replaceChildren(...blocks(words).map(blockNode));
+    }
     post('/api/edit_answer', { id: m.id, body: words });
   }
   answerEdit = shut;
@@ -9779,8 +10158,57 @@ function partStamp(part) {
 function partNode(part) {
   var node = part.kind === 'thought' ? thoughtBlocks(part.m) : toolBox(part.m);
   if (part.m.id) { node.dataset.mid = part.m.id; }
+  node.dataset.groupPart = part.kind + ':' + (part.m.id || '');
   node.dataset.stamp = partStamp(part);
   return node;
+}
+
+// The text the answer wrote before its final response, kept under the thinking panel.
+function answerPart(message) {
+  var node = make('div', 'plain answer-words');
+  if (message.id) { node.dataset.mid = message.id; }
+  node.dataset.answerStamp = String(message.body || '');
+  var content = blocks(message.body);
+  for (var n = 0; n < content.length; n++) { node.appendChild(blockNode(content[n])); }
+  return node;
+}
+
+// The final response used to be written by the live node inside the work row. Once it became a
+// saved message, this row must keep only any non-final text and let the final node stand outside.
+function syncGroupAnswers(turn, items, from, to, isLive) {
+  var held = new Map();
+  Array.from(turn.children).forEach(function (node) {
+    if (node.classList.contains('answer-words')) { held.set(node.dataset.mid || '', node); }
+  });
+  var ordered = [];
+  for (var n = from; n < to; n++) {
+    var message = items[n];
+    if (message.id === 'live' || message.role === 'Tool' || !String(message.body || '').trim()) {
+      continue;
+    }
+    var key = message.id || '';
+    var node = held.get(key);
+    held.delete(key);
+    if (!node || node.dataset.answerStamp !== String(message.body || '')) {
+      var replacement = answerPart(message);
+      if (node) { node.replaceWith(replacement); }
+      node = replacement;
+    }
+    ordered.push(node);
+  }
+  held.forEach(function (node) { node.remove(); });
+  if (!isLive) {
+    Array.from(turn.children).forEach(function (node) {
+      if (node.classList.contains('plain') && !node.classList.contains('answer-words')
+          && !node.querySelector('.think') && node.querySelector('.caret')) {
+        node.remove();
+      }
+    });
+  }
+  var line = Array.from(turn.children).find(function (node) {
+    return node.classList.contains('stamp');
+  }) || null;
+  for (var n = 0; n < ordered.length; n++) { turn.insertBefore(ordered[n], line); }
 }
 
 // The panel of a train of thought is removed through part by part: only a part that stated
@@ -9793,24 +10221,33 @@ function syncGroup(turn, items, from, to, isLive) {
   var body = panel ? panel.querySelector('.words') : null;
   if (!body) { return; }
   var parts = groupParts(items, from, to);
-  // The parts of the answer that is arriving are behind these, and the writer owns them, so
-  // they are kept out of the count and skipped.
-  var held = [];
-  var live = null;
-  for (var c = body.firstChild; c; c = c.nextSibling) {
-    if (c.dataset && c.dataset.live) { live = c; break; }
-    held.push(c);
-  }
-  while (held.length > parts.length) {
-    var gone = held.pop();
-    gone.parentNode.removeChild(gone);
-  }
+  // Persisted parts keep their own nodes; streamed thoughts and calls stay at the end only
+  // while the writer still owns them.
+  var held = new Map();
+  Array.from(body.children).forEach(function (node) {
+    if (node.dataset.groupPart) { held.set(node.dataset.groupPart, node); }
+  });
+  var ordered = [];
   for (var p = 0; p < parts.length; p++) {
-    var node = held[p];
-    if (!node) { body.insertBefore(partNode(parts[p]), live); continue; }
-    if (node.dataset.stamp !== partStamp(parts[p])) {
-      body.replaceChild(partNode(parts[p]), node);
+    var key = parts[p].kind + ':' + (parts[p].m.id || '');
+    var node = held.get(key);
+    held.delete(key);
+    if (!node) {
+      node = partNode(parts[p]);
+    } else if (node.dataset.stamp !== partStamp(parts[p])) {
+      var replacement = partNode(parts[p]);
+      replacement.classList.toggle('closed', node.classList.contains('closed'));
+      node.replaceWith(replacement);
+      node = replacement;
     }
+    ordered.push(node);
+  }
+  held.forEach(function (node) { node.remove(); });
+  var streamed = Array.from(body.children).filter(function (node) { return node.dataset.live; });
+  if (!isLive) { streamed.forEach(function (node) { node.remove(); }); }
+  for (var n = 0; n < ordered.length; n++) {
+    var anchor = body.children[n] || null;
+    if (anchor !== ordered[n]) { body.insertBefore(ordered[n], anchor); }
   }
   // The writer reports how long the model has thought for, so the header of a panel that holds
   // an answer still arriving is left to it.
@@ -9951,6 +10388,7 @@ function syncTurn(turn, items, row) {
     // the making.
     var kept = foldMoved ? null : foldsOf(turn);
     syncGroup(turn, items, row.from, row.live ? row.to - 1 : row.to, row.live);
+    syncGroupAnswers(turn, items, row.from, row.to, row.live);
     unfoldRow(turn, kept);
     return;
   }
@@ -9993,11 +10431,7 @@ function fillGroup(turn, items, from, to) {
   for (var k = from; k < to; k++) {
     var tail = items[k];
     if (tail.role === 'Tool' || !String(tail.body || '').trim()) { continue; }
-    var said = make('div', 'plain answer-words');
-    if (tail.id) { said.dataset.mid = tail.id; }
-    var cut = blocks(tail.body);
-    for (var j = 0; j < cut.length; j++) { said.appendChild(blockNode(cut[j])); }
-    turn.appendChild(said);
+    turn.appendChild(answerPart(tail));
   }
   // The line under a train of thought belongs to the last message of it, which is the answer
   // the thought led to, or the last run of a tool.
@@ -10588,130 +11022,27 @@ function addTurn(box, turn) {
 }
 
 function drawThread(s) {
-  // The state the thread is created from is the last state the page is on, so the one block of
-  // an answer, which is gathered from the thread, is gathered from these messages and not from
-  // the ones of an earlier look.
   cur = s;
-  var box = el.col;
   foldsFollowSettings();
   var items = threadItems();
-  if (items.length === 0) {
+  if (!items.length) {
     stopInk();
-    if (box.dataset.key !== 'blank') {
-      box.dataset.key = 'blank';
-      // The chat is remembered as none, so the chat that returns after this one is at the top
-      // again, as a chat that was opened always does.
-      box.dataset.chat = '';
-      box.innerHTML = '';
+    if (el.col.dataset.key !== 'blank') {
+      el.col.dataset.key = 'blank';
+      el.col.dataset.chat = '';
+      el.col.innerHTML = '';
       var blank = make('div', 'empty');
       var strong = make('b');
       strong.textContent = 'Nothing written yet';
       var rest = make('span');
       rest.textContent = 'Write below and press Enter. An empty chat is removed '
         + 'when you switch chats.';
-      blank.appendChild(strong);
-      blank.appendChild(rest);
-      box.appendChild(blank);
+      blank.append(strong, rest);
+      el.col.appendChild(blank);
     }
     return;
   }
-  if (chatting.corporate) {
-    drawCorporateThread(s, items);
-    return;
-  }
-  // A train of thought that runs over a run of tools is in one thinking panel, so the thoughts,
-  // the runs that came out of them, and the text of the answer at the end of it read as one
-  // part of the conversation. The span of each panel is in the key, so the thread is rebuilt
-  // when a panel grows.
-  var spans = thoughtSpans(items);
-  var rows = threadRows(items, spans);
-  var plan = endPlan(items, rows, !!(s && s.generating));
-  var key = items.map(function (m) { return m.id; }).join('|')
-          + '#' + spans.map(function (r) { return r.from + '-' + r.to; }).join(',');
-  var open = (s.chat && s.chat.id) || '';
-  var turns = threadTurns(box);
-  if (box.dataset.key !== key) {
-    var had = Number(box.dataset.count || 0);
-    var fresh = box.dataset.chat !== open;
-    box.dataset.key = key;
-    box.dataset.chat = open;
-    box.dataset.count = items.length;
-    // The rows of a chat only ever are at the end of it, so the thread is not rebuilt whole
-    // when one row arrives. A row that is where it was kept; a row whose text changed is put
-    // again on its own; a row that is new is added, and the rows that are no longer there are
-    // removed. The chat that was here was built again for one row that arrived, which read as
-    // the whole chat refreshing under the user.
-    for (var r = 0; r < rows.length; r++) {
-      var ids = rowStamp(items, rows[r]);
-      var child = turns[r];
-      if (!child) {
-        var turn = make('div', 'turn');
-        drawRow(turn, items, rows[r]);
-        // Only the turn that arrived fades up. A chat that was opened is already there, and its
-        // turns do not need to record it again.
-        if (r === rows.length - 1 && items.length > had && !reduce) { turn.classList.add('in'); }
-        // A message of the user that arrived while a copy of the text is on its way is the
-        // place that copy is going to.
-        claimFlyTurn(turn, rows[r].to - rows[r].from === 1 ? items[rows[r].from] : null);
-        addTurn(box, turn);
-        turns.push(turn);
-      } else if (child.dataset.row !== ids) {
-        // The row is rebuilt in a new turn. The folds the user moved are read off the old one
-        // and put back on the new one, but only when the two rows are made of the same
-        // conversation: a row that is where another row was after a message was sent of the
-        // chat is a different part of the conversation, and the folds of the row that went
-        // should not follow it.
-        var kept = !foldMoved && sameTalk(child.dataset.row, ids) ? foldsOf(child) : null;
-        var again = make('div', 'turn');
-        drawRow(again, items, rows[r]);
-        unfoldRow(again, kept);
-        box.replaceChild(again, child);
-        turns[r] = again;
-        // A row that was created again lost the marker that holds a message back from sight, so
-        // it is put on again while the copy is still on its way.
-        if (fly && fly.mid && again.dataset.mid === fly.mid) {
-          fly.turn = again;
-          again.classList.add('landing');
-        }
-      } else {
-        syncTurn(child, items, rows[r]);
-      }
-    }
-    while (turns.length > rows.length) { box.removeChild(turns.pop()); }
-    for (var p = 0; p < rows.length; p++) { placeEnd(turns[p], plan[p]); }
-    if (fresh) {
-      // A chat that was opened or turned is at the top.
-      el.thread.scrollTop = 0;
-      stick = true;
-    }
-  } else {
-    var tail = items[items.length - 1];
-    if (tail.id === 'live') {
-      // An answer that is arriving is written a few characters at a time by the writer, so the
-      // text flow instead of arriving in jumps.
-      feedInk(tail);
-    } else {
-      stopInk();
-    }
-    // The last rows are the ones that can still say something new: the answer that is arriving,
-    // and the run of a tool whose result arrived while the model wrote on. Only the last turn
-    // was checked before, so a block of a run that is in a thinking panel under an answer went
-    // on saying 'running' with nothing of its result for the rest of the answer.
-    for (var k = rows.length - 3; k < rows.length; k++) {
-      if (k >= 0) { syncTurn(turns[k], items, rows[k]); }
-    }
-    // The blocks the last answers end with are checked again here as well: an offer that
-    // arrived while the model was writing remains aside until the answer is over, and the row
-    // that carries it has nothing else to say when it ends. The same is true of the display
-    // button and of the paths proposed for what comes next, which are in the same place.
-    for (var q = rows.length - 3; q < rows.length; q++) {
-      if (q >= 0) { placeEnd(turns[q], plan[q]); }
-    }
-  }
-  if (stick) {
-    el.thread.scrollTop = el.thread.scrollHeight;
-    stepHeadShown();
-  }
+  drawWorkingThread(s, items);
 }
 
 // Send the blocks of code of a part of the chat back to their first line, when the user never
@@ -12341,6 +12672,8 @@ function sayNothing(body) {
 var lookFiles = null;
 var lookAt = 0;
 var lookRaw = false;
+var sidebarLookSessions = new Map();
+var currentLookSession = '';
 // The count of the drawings. A file is requested, and the answer comes a moment later; two
 // turns of the files in a moment would otherwise let the answer of the file before write itself
 // over the file that is left open.
@@ -12558,7 +12891,16 @@ function turnLook(by) {
   if (next < 0 || next >= list.length) { return; }
   lookAt = next;
   lookRaw = false;
+  saveSidebarLookSession();
   drawLookFile();
+}
+
+function saveSidebarLookSession() {
+  var session = sidebarLookSessions.get(currentLookSession);
+  if (!session) { return; }
+  session.files = lookFiles ? lookFiles.slice() : null;
+  session.at = lookAt;
+  session.raw = lookRaw;
 }
 
 // The window is put up. `one` reports what is to be checked: its name, whether it is an image
@@ -12569,7 +12911,27 @@ function openViewer(one) {
   var box = el.viewer;
   if (!box || !one) { return; }
   wireViewer();
-  lookBack = document.activeElement;
+  if (one.files) {
+    lookFiles = one.files.slice();
+  } else {
+    lookFiles = null;
+    lookAt = 0;
+    lookRaw = false;
+  }
+  var session = { one: one, files: lookFiles ? lookFiles.slice() : null, at: lookAt, raw: lookRaw };
+  if (typeof window.autumnOpenSidebarFile === 'function') {
+    var selected = session.files && session.files[session.at];
+    var label = selected ? wholeOf(selected) : (one.name || 'A file of the chat');
+    window.autumnOpenSidebarFile(label, function (id) { sidebarLookSessions.set(id, session); });
+    return;
+  }
+  renderViewerContent(one);
+}
+
+function renderViewerContent(one) {
+  var box = el.viewer;
+  if (!box || !one) { return; }
+  var renderTurn = ++lookTurn;
   box.classList.remove('hidden');
   if (el.lookname) { el.lookname.textContent = one.name || 'A file of the chat'; }
   if (el.lookkind) {
@@ -12587,10 +12949,11 @@ function openViewer(one) {
       noteWaiting(body);
       (function (name) {
         attachmentWords(one.id).then(function (record) {
+          if (renderTurn !== lookTurn) { return; }
           var url = record && record.data ? record.data : '';
           body.innerHTML = '';
           if (url) { showPicture(body, url, name); } else { sayNothing(body); }
-        }, function () { sayNothing(body); });
+        }, function () { if (renderTurn === lookTurn) { sayNothing(body); } });
       }(one.name));
       return;
     }
@@ -12601,6 +12964,7 @@ function openViewer(one) {
   if (one.file) {
     noteWaiting(body);
     wordsOfHeld(one, function (words) {
+      if (renderTurn !== lookTurn) { return; }
       body.innerHTML = '';
       if (words) { showWords(body, words); } else { sayNothing(body); }
     });
@@ -12610,10 +12974,11 @@ function openViewer(one) {
     noteWaiting(body);
     (function (id) {
       attachmentWords(id).then(function (record) {
+        if (renderTurn !== lookTurn) { return; }
         var words = record && record.text ? record.text : '';
         body.innerHTML = '';
         if (words) { showWords(body, words); } else { sayNothing(body); }
-      }, function () { sayNothing(body); });
+      }, function () { if (renderTurn === lookTurn) { sayNothing(body); } });
     }(one.id));
     return;
   }
@@ -12625,6 +12990,10 @@ function openViewer(one) {
 function closeViewer() {
   var box = el.viewer;
   if (!box || box.classList.contains('hidden')) { return; }
+  if (currentLookSession && typeof window.autumnCloseActiveSidebarFile === 'function') {
+    window.autumnCloseActiveSidebarFile();
+    return;
+  }
   box.classList.add('hidden');
   if (el.lookbody) { lookTurnOn(el.lookbody, false); el.lookbody.innerHTML = ''; }
   // The window over the contents of files is begun again from the first of them next time it is
@@ -12647,11 +13016,6 @@ function wireViewer() {
   if (el.lookclose) {
     el.lookclose.addEventListener('click', function () { closeViewer(); });
   }
-  if (el.viewer) {
-    el.viewer.addEventListener('mousedown', function (event) {
-      if (event.target === el.viewer) { closeViewer(); }
-    });
-  }
   // The turn of the files, and the text of a file instead of the item it makes.
   if (el.lookprev) {
     el.lookprev.addEventListener('click', function () { turnLook(-1); });
@@ -12662,6 +13026,7 @@ function wireViewer() {
   if (el.lookraw) {
     el.lookraw.addEventListener('click', function () {
       lookRaw = !lookRaw;
+      saveSidebarLookSession();
       drawLookFile();
     });
   }
@@ -12669,14 +13034,38 @@ function wireViewer() {
     if (event.key !== 'Escape') { return; }
     if (el.viewer && !el.viewer.classList.contains('hidden')) {
       event.preventDefault();
-      closeViewer();
+      if (typeof window.autumnCloseActiveSidebarFile === 'function') {
+        window.autumnCloseActiveSidebarFile();
+      } else { closeViewer(); }
+    }
+  });
+  window.addEventListener('autumn-sidebar-file-select', function (event) {
+    var id = event.detail && event.detail.id;
+    var session = sidebarLookSessions.get(id);
+    if (!session) { return; }
+    currentLookSession = id;
+    lookFiles = session.files ? session.files.slice() : null;
+    lookAt = session.at || 0;
+    lookRaw = !!session.raw;
+    renderViewerContent(session.one);
+  });
+  window.addEventListener('autumn-sidebar-tab-selected', function () {
+    currentLookSession = '';
+    if (el.viewer) { el.viewer.classList.add('hidden'); }
+  });
+  window.addEventListener('autumn-sidebar-file-close', function (event) {
+    var id = event.detail && event.detail.id;
+    sidebarLookSessions.delete(id);
+    if (currentLookSession === id) {
+      currentLookSession = '';
+      if (el.viewer) { el.viewer.classList.add('hidden'); }
     }
   });
   // The two keys of the arrows turn the files of the display, while the window is left open and
   // the
   // pointer is not busy in a box of text.
   window.addEventListener('keydown', function (event) {
-    if (!lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
+    if (!currentLookSession || !lookFiles || !el.viewer || el.viewer.classList.contains('hidden')) { return; }
     var where = document.activeElement;
     if (where && (where.tagName === 'INPUT' || where.tagName === 'TEXTAREA')) { return; }
     if (event.key === 'ArrowLeft') { event.preventDefault(); turnLook(-1); }
@@ -13640,7 +14029,7 @@ function watchBadges() {
 // grows afterwards, when a longer name is written over one of its lines, is kept within the
 // window as well. Where the window is narrower than the least breadth of a box, the box is moved
 // back into the window whole.
-var MENUS = ['plusmenu', 'codemenu', 'mcpmenu', 'sandboxmenu', 'thinkmenu'];
+var MENUS = ['plusmenu', 'codemenu', 'agenticmenu', 'mcpmenu', 'sandboxmenu', 'thinkmenu'];
 var MENU_LEAST = 176;
 
 function menuFitOpen() {
@@ -13671,7 +14060,7 @@ function menuFitOpen() {
 // Bring one drop-down up and every other one down, for two menus over one row of badges read as
 // an error in the page.
 function showOnly(opener) {
-  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu(); closePlusMenu();
   if (opener) { opener(); }
 }
 
@@ -13685,7 +14074,7 @@ function wireRightClick(badge, opener) {
     event.stopPropagation();
     if (badge.disabled) { return; }
     if (el.plusmenu && el.plusmenu.contains(badge)) {
-      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+      closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu();
       opener();
     } else { showOnly(opener); }
   });
@@ -13695,6 +14084,7 @@ wireRightClick(el.code, openToolMenu);
 wireRightClick(el.sandbox, openSandboxMenu);
 wireRightClick(el.think, openThinkMenu);
 wireRightClick(el.mcp, openMcpMenu);
+wireRightClick(el.agentic, openAgenticMenu);
 // A badge that holds a drop-down of its own answers two places of itself. The right of the
 // badge, from its arrow to its edge, is the way into the menu; the rest of the badge is the
 // switch of the item the badge means. Where that item is a group of switches and none of them
@@ -13709,7 +14099,7 @@ function wireMenuBadge(badge, menu, open, onMain, switchedOn) {
       // RAG and MCP live inside the plus menu. Their own choices open beside them without
       // putting away the menu that contains them.
       if (el.plusmenu && el.plusmenu.contains(badge)) {
-        closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu();
+        closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu();
         open();
       } else { showOnly(open); }
     }
@@ -13754,6 +14144,7 @@ wireMenuBadge(el.think, el.thinkmenu, openThinkMenu);
 // The badge of the servers of the user's own opens the list of them, for every server is
 // switched on its own and there is nothing to switch as a whole.
 wireMenuBadge(el.mcp, el.mcpmenu, openMcpMenu);
+wireMenuBadge(el.agentic, el.agenticmenu, openAgenticMenu);
 // Choices inside the plus menu do not make it an outside click. The attachment and source
 // entries put it away explicitly when they are chosen; the RAG switch and MCP list leave it up.
 if (el.plusmenu) {
@@ -13761,7 +14152,7 @@ if (el.plusmenu) {
 }
 // A click anywhere else in the page puts the menus away.
 document.addEventListener('click', function () {
-  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closePlusMenu();
+  closeThinkMenu(); closeSandboxMenu(); closeMcpMenu(); closeToolMenu(); closeAgenticMenu(); closePlusMenu();
 });
 
 // ------------------------------------------- icons under the pointer
@@ -14032,8 +14423,86 @@ document.addEventListener('animationend', function (event) {
   if (at && at.classList && at.classList.contains('mark-out')) { at.classList.remove('mark-out'); }
 });
 
+var remoteConnectAttempt = 0;
+
+function closeRemoteConnect() {
+  if (byId('remoteConnectGo').disabled) { return; }
+  remoteConnectAttempt++;
+  byId('remoteConnectOverlay').classList.add('hidden');
+  byId('remoteConnectNote').textContent = '';
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectGo').disabled = false;
+  byId('remoteConnectGo').textContent = 'Connect';
+  byId('remoteConnectClose').disabled = false;
+  byId('remoteConnectCancel').disabled = false;
+}
+
+function openRemoteConnect() {
+  remoteConnectAttempt++;
+  byId('remoteAddress').value = '';
+  byId('remoteConnectNote').textContent = '';
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectOverlay').classList.remove('hidden');
+  byId('remoteAddress').focus();
+}
+
+function connectRemoteProgram() {
+  var button = byId('remoteConnectGo');
+  if (button.disabled) { return; }
+  var address = byId('remoteAddress').value.trim();
+  if (!address) {
+    byId('remoteConnectNote').textContent = 'Enter the address of the remote program.';
+    byId('remoteConnectNote').classList.add('bad');
+    byId('remoteAddress').focus();
+    return;
+  }
+  var attempt = ++remoteConnectAttempt;
+  button.disabled = true;
+  button.textContent = 'Connecting…';
+  byId('remoteConnectClose').disabled = true;
+  byId('remoteConnectCancel').disabled = true;
+  byId('remoteConnectNote').classList.remove('bad');
+  byId('remoteConnectNote').textContent = 'Checking the address and opening a remote window…';
+  invoke('connect_remote', { address: address }).then(function () {
+    if (attempt !== remoteConnectAttempt) { return; }
+    byId('remoteConnectNote').textContent = 'The remote program opened in a separate window.';
+    button.disabled = false;
+    button.textContent = 'Connect';
+    byId('remoteConnectClose').disabled = false;
+    byId('remoteConnectCancel').disabled = false;
+    window.setTimeout(function () {
+      if (attempt === remoteConnectAttempt) { closeRemoteConnect(); }
+    }, 900);
+  }, function (problem) {
+    if (attempt !== remoteConnectAttempt) { return; }
+    button.disabled = false;
+    button.textContent = 'Connect';
+    byId('remoteConnectClose').disabled = false;
+    byId('remoteConnectCancel').disabled = false;
+    byId('remoteConnectNote').textContent = String(problem || 'The remote program could not be reached.');
+    byId('remoteConnectNote').classList.add('bad');
+  });
+}
+
 el.settingsbtn.addEventListener('click', function () { openSettings('program'); });
-el.modelbtn.addEventListener('click', function () { openSettings('model'); });
+el.remoteConnectBtn.addEventListener('click', openRemoteConnect);
+byId('remoteConnectGo').addEventListener('click', connectRemoteProgram);
+byId('remoteConnectClose').addEventListener('click', closeRemoteConnect);
+byId('remoteConnectCancel').addEventListener('click', closeRemoteConnect);
+byId('remoteConnectOverlay').addEventListener('click', function (event) {
+  if (event.target === byId('remoteConnectOverlay')) { closeRemoteConnect(); }
+});
+byId('remoteAddress').addEventListener('keydown', function (event) {
+  if (event.key === 'Enter') { event.preventDefault(); connectRemoteProgram(); }
+});
+document.addEventListener('keydown', function (event) {
+  if (byId('remoteConnectOverlay').classList.contains('hidden')) { return; }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!byId('remoteConnectGo').disabled) { closeRemoteConnect(); }
+  }
+}, true);
 // The theme switch steps through the five themes in order; the icon shows the theme in use.
 el.themebtn.addEventListener('click', function () {
   var next = THEMES[(THEMES.indexOf(themeWord) + 1) % THEMES.length];
@@ -15851,8 +16320,11 @@ function fillModelForm(given) {
     { image_min_tokens: 0, image_max_tokens: 0, mmproj_cpu: false });
   byId('mBudget').value = s.reasoning_budget;
   byId('mReasonMsg').value = s.reasoning_message || '';
-  byId('mTensor').checked = !!s.tensor_parallel;
-  advOpen('advCards', ['tensor_parallel'], { tensor_parallel: false });
+  var splitMode = typeof s.split_mode === 'string' ? s.split_mode.toLowerCase() : '';
+  if (!splitMode) { splitMode = s.tensor_parallel === true ? 'tensor' : 'layer'; }
+  if (['layer', 'row', 'tensor'].indexOf(splitMode) < 0) { splitMode = 'layer'; }
+  byId('mSplitMode').value = splitMode;
+  advOpen('advCards', ['split_mode'], { split_mode: 'layer' });
   var box = byId('mCards'); box.innerHTML = '';
   var gpus = (mdl && mdl.gpus) || [];
   if (!gpus.length) {
@@ -15932,7 +16404,8 @@ function readModel() {
   s.mmproj_cpu = byId('mMmprojCpu').checked;
   s.reasoning_budget = intOf('mBudget', s.reasoning_budget);
   s.reasoning_message = byId('mReasonMsg').value;
-  s.tensor_parallel = byId('mTensor').checked;
+  s.split_mode = byId('mSplitMode').value;
+  delete s.tensor_parallel;
   s.chat_template = byId('mTemplate').value;
   s.extra_args = byId('mExtra').value;
   s.send_default_args = byId('mDefaultArgs').checked;
@@ -16899,7 +17372,7 @@ byId('fRainSplash').addEventListener('change', function () {
   'mMinP', 'mRepeatPen', 'mPresencePen',
   'mMaxTokens', 'mSeed', 'mSpec', 'mDraft', 'mDraftTokens',
   'mNgramMatch', 'mNgramMax', 'mNgramMin', 'mParallel', 'mBatch', 'mUbatch',
-  'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mTensor',
+  'mVision', 'mImgMin', 'mImgMax', 'mMmprojCpu', 'mBudget', 'mReasonMsg', 'mSplitMode',
   'mVram',
   'mTemplate', 'mExtra', 'mDefaultArgs'].forEach(function (id) {
   var node = byId(id);

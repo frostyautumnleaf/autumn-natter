@@ -33,7 +33,8 @@
 //     run out: the clock, the marker that adds five minutes, and the stop marker
 //   AN_QUEUE=1 node page-shot.js rich p.png       # the list of the messages
 //     waiting to go, as the program keeps it. AN_QUEUEHELD=1 markers the list as
-//     stopped. Use AN_CLICK='#queuehead' to see the rows open.
+//     stopped. Use AN_CLICK='#queuehead' to see the rows open. AN_GOAL=1 puts
+//     an active goal above that list, as it is while one is being pursued.
 //   AN_SIDE=1 node page-shot.js rich p.png        # the side bar, open
 //   AN_PIXEL=1 node page-shot.js rich p.png       # the pixel-art form of the theme
 //   AN_GIFTS=1 node page-shot.js rich p.png       # the conversation ends with the blocks
@@ -861,6 +862,16 @@ function scene(name, dark, theme) {
         ]
       };
     }
+    // AN_GOAL=1 puts the persistent goal bar over the message queue, as it is while
+    // the model is pursuing a goal and has messages waiting to go.
+    if (process.env.AN_GOAL === '1') {
+      start.chat.goal = {
+        request: 'Finish the parser refactor, run the relevant tests, and report the verified result.',
+        started: Math.floor(Date.now() / 1000) - 367,
+        elapsed: 367,
+        paused: false
+      };
+    }
     // The width of the chat, as the Chatting section of the settings gives it.
     if (process.env.AN_CHATWIDTH) { start.chatting.width = parseInt(process.env.AN_CHATWIDTH, 10) || 780; }
     if (process.env.AN_NOTHINKGROW === '1') {
@@ -1216,7 +1227,7 @@ const MODEL = {
   settings: {
     ctx_size: 8192, kv_index: 1, load_index: 1, spec_index: 0, draft_model: '',
     draft_tokens: 4, ngram_match: 0, ngram_max: 0, ngram_min: 0, parallel: 1, batch_size: 512, ubatch_size: 128, vision: false,
-    tensor_parallel: false,
+    split_mode: 'layer',
     temperature: 0.7, top_p: 0.95, top_k: 20, min_p: 0, repeat_penalty: 1,
     presence_penalty: 0, max_tokens: -1, seed: -1,
     ctx_checkpoints: 32, cache_ram: 8192, cache_prompt: true,
@@ -1640,8 +1651,10 @@ async function main() {
   }
   if (name === 'sheet-model') {
     await view.evaluate(function () {
-      var b = document.getElementById('modelbtn');
+      var b = document.getElementById('settingsbtn');
       if (b) { b.click(); }
+      var tab = document.getElementById('tabModel');
+      if (tab) { tab.click(); }
     });
     await new Promise(function (r) { setTimeout(r, 600); });
   }

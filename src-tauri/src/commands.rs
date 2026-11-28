@@ -8,10 +8,17 @@
 // ok" record, and the window reads the state again.
 
 use std::path::Path;
+use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+use std::{hash::Hash, hash::Hasher};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder,
+    WebviewUrl, WebviewWindowBuilder,
+};
 
 use autumn_natter_core::attach;
 
@@ -19,12 +26,711 @@ use autumn_natter_core::engine::Engine;
 use autumn_natter_core::logs;
 use autumn_natter_core::web;
 
+static BROWSER_DOWNLOAD_GRANTS: OnceLock<
+    Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>,
+> = OnceLock::new();
+static BROWSER_VIEWPORTS: OnceLock<Mutex<std::collections::HashMap<String, BrowserViewport>>> =
+    OnceLock::new();
+static BROWSER_SCREENSHOT_SIZES: OnceLock<
+    Mutex<std::collections::HashMap<String, (u32, u32)>>,
+> = OnceLock::new();
+static BROWSER_VISIBLE: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+static BROWSER_NAVIGATION_PENDING: OnceLock<
+    Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
+> = OnceLock::new();
+
+#[derive(Clone, Copy, PartialEq)]
+struct BrowserViewport {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+fn browser_viewport(label: &str) -> Option<BrowserViewport> {
+    BROWSER_VIEWPORTS.get()?.lock().ok()?.get(label).copied()
+}
+
+// Wry packs Linux child webviews into the window's vertical GTK box. The native browser
+// instead needs the same window coordinates as the browser slot in the main webview.
+#[cfg(target_os = "linux")]
+pub(crate) fn install_browser_overlay(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    use gtk::{prelude::*, OverlaySignals};
+
+    window.with_webview(|place| {
+        let main = place.inner();
+        let Some(parent) = main.parent().and_downcast::<gtk::Box>() else { return };
+        let overlay = gtk::Overlay::new();
+        overlay.set_widget_name("autumn-browser-overlay");
+        overlay.connect_get_child_position(|_, child| {
+            let viewport = browser_viewport(child.widget_name().as_str())?;
+            Some(gtk::gdk::Rectangle::new(
+                viewport.x.round() as i32,
+                viewport.y.round() as i32,
+                viewport.width.round() as i32,
+                viewport.height.round() as i32,
+            ))
+        });
+        parent.remove(&main);
+        overlay.add(&main);
+        parent.pack_start(&overlay, true, true, 0);
+        overlay.show_all();
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn add_browser_view(
+    window: tauri::Window,
+    builder: WebviewBuilder<tauri::Wry>,
+    position: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> Result<tauri::Webview, String> {
+    use gtk::prelude::*;
+
+    let (send, receive) = mpsc::sync_channel(1);
+    let main = window.clone();
+    // Build and reparent in one GTK event so the child never gets a frame in the box.
+    window.run_on_main_thread(move || {
+        let view = match main.add_child(builder, position, size) {
+            Ok(view) => view,
+            Err(problem) => {
+                let _ = send.send(Err(problem.to_string()));
+                return;
+            }
+        };
+        let child_view = view.clone();
+        let reply = send.clone();
+        if let Err(problem) = view.with_webview(move |place| {
+            let child = place.inner();
+            let parent = child.parent().and_downcast::<gtk::Box>();
+            let overlay = parent.as_ref().and_then(|parent| {
+                parent.children().into_iter().find_map(|widget| {
+                    widget.downcast::<gtk::Overlay>().ok()
+                        .filter(|overlay| overlay.widget_name() == "autumn-browser-overlay")
+                })
+            });
+            let result = if let (Some(parent), Some(overlay)) = (parent, overlay) {
+                parent.remove(&child);
+                child.set_widget_name(child_view.label());
+                overlay.add_overlay(&child);
+                child.show();
+                Ok(child_view)
+            } else {
+                child.hide();
+                Err(String::from("The native browser sidebar is unavailable."))
+            };
+            let _ = reply.send(result);
+        }) {
+            let _ = send.send(Err(problem.to_string()));
+        }
+    }).map_err(|problem| problem.to_string())?;
+    receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The native browser could not be placed in the sidebar."))?
+}
+
+#[cfg(not(target_os = "linux"))]
+fn add_browser_view(
+    window: tauri::Window,
+    builder: WebviewBuilder<tauri::Wry>,
+    position: LogicalPosition<f64>,
+    size: LogicalSize<f64>,
+) -> Result<tauri::Webview, String> {
+    window.add_child(builder, position, size).map_err(|problem| problem.to_string())
+}
+
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
 // the answer stays small.
 #[tauri::command]
 pub async fn get_state(engine: State<'_, Engine>, since: Option<u64>) -> Result<Value, String> {
     let snap = engine.snapshot();
     Ok(web::state(&snap, since))
+}
+
+#[tauri::command]
+pub async fn get_browser_page(engine: State<'_, Engine>, tab: u64) -> Result<Value, String> {
+    engine
+        .browser_page(tab)
+        .map(|(url, html)| json!({"url": url, "html": html}))
+        .ok_or_else(|| String::from("That browser page is no longer available."))
+}
+
+#[tauri::command]
+pub async fn browser_window_sync(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    tab: u64,
+    visible: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<Value, String> {
+    let snap = engine.snapshot();
+    if tab == 0 {
+        return Err(String::from("Choose a one-based browser tab number."));
+    }
+    let label = native_browser_label(&snap.chat_id, tab);
+    let visible_views = BROWSER_VISIBLE.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+    for (one, view) in app.webviews() {
+        if one.starts_with("agentic-browser-") && one != label {
+            let _ = view.hide();
+            if let Ok(mut shown) = visible_views.lock() {
+                shown.remove(&one);
+            }
+        }
+    }
+    let Some((address, _)) = engine.browser_page(tab) else {
+        if let Some(view) = app.get_webview(&label) {
+            let _ = view.hide();
+        }
+        if let Ok(mut shown) = visible_views.lock() {
+            shown.remove(&label);
+        }
+        return if visible {
+            Err(String::from("Turn on Browser use and open a page first."))
+        } else {
+            Ok(json!({"ok": true}))
+        };
+    };
+    if !visible {
+        if let Some(view) = app.get_webview(&label) {
+            view.hide().map_err(|problem| problem.to_string())?;
+        }
+        if let Ok(mut shown) = visible_views.lock() {
+            shown.remove(&label);
+        }
+        return Ok(json!({"ok": true}));
+    }
+    if ![x, y, width, height].iter().all(|value| value.is_finite())
+        || x < 0.0
+        || y < 0.0
+        || width < 1.0
+        || height < 1.0
+        || width > 20_000.0
+        || height > 20_000.0
+    {
+        return Err(String::from("The browser panel has invalid page bounds."));
+    }
+    let viewport = BrowserViewport {
+        x,
+        y,
+        width,
+        height,
+    };
+    let previous = BROWSER_VIEWPORTS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .insert(label.clone(), viewport);
+    let was_visible = visible_views
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .contains(&label);
+    let position = LogicalPosition::new(x, y);
+    let size = LogicalSize::new(width, height);
+    if let Some(view) = app.get_webview(&label) {
+        let target = tauri::Url::parse(&address).map_err(|problem| problem.to_string())?;
+        let current = view.url().map_err(|problem| problem.to_string())?;
+        let navigation = BROWSER_NAVIGATION_PENDING
+            .get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        let navigate = {
+            let mut pending = navigation
+                .lock()
+                .map_err(|_| String::from("The browser navigation state is busy."))?;
+            pending.retain(|_, (_, at)| at.elapsed() < Duration::from_secs(30));
+            if current == target {
+                pending.remove(&label);
+                false
+            } else if pending
+                .get(&label)
+                .is_some_and(|(url, _)| url == target.as_str())
+            {
+                false
+            } else {
+                // Layout can change again before the webview reports the new URL.
+                pending.insert(label.clone(), (target.to_string(), std::time::Instant::now()));
+                true
+            }
+        };
+        if navigate {
+            if let Err(problem) = view.navigate(target) {
+                if let Ok(mut pending) = navigation.lock() {
+                    pending.remove(&label);
+                }
+                return Err(problem.to_string());
+            }
+        }
+        if previous != Some(viewport) {
+            #[cfg(target_os = "linux")]
+            view.with_webview(|place| {
+                use gtk::prelude::*;
+                if let Some(overlay) = place.inner().parent() {
+                    overlay.queue_allocate();
+                }
+            }).map_err(|problem| problem.to_string())?;
+            #[cfg(not(target_os = "linux"))]
+            view.set_bounds(tauri::Rect { position: position.into(), size: size.into() })
+                .map_err(|problem| problem.to_string())?;
+        }
+        if !was_visible {
+            view.show().map_err(|problem| problem.to_string())?;
+            visible_views
+                .lock()
+                .map_err(|_| String::from("The browser panel state is busy."))?
+                .insert(label.clone());
+        }
+        return Ok(json!({"ok": true, "url": address}));
+    }
+
+    let target = autumn_natter_core::search::validate_public_browser_url(&address)?;
+    let navigation_app = app.clone();
+    let navigation_chat = snap.chat_id.clone();
+    let navigation_label = label.clone();
+    let title_chat = snap.chat_id.clone();
+    let popup_app = app.clone();
+    let popup_chat = snap.chat_id.clone();
+    let proxy = crate::browser_proxy::address()?;
+    let proxy_url = tauri::Url::parse(&format!("http://{proxy}"))
+        .map_err(|problem| format!("Could not configure the safe browser proxy: {problem}"))?;
+    let download_app = app.clone();
+    let download_label = label.clone();
+    let builder = WebviewBuilder::new(&label, WebviewUrl::External(target))
+        .focused(false)
+        .proxy_url(proxy_url)
+        .on_navigation(move |target| {
+            let Ok(target) = autumn_natter_core::search::parse_public_browser_url(target.as_str()) else {
+                return false;
+            };
+            let accepted = navigation_app
+                .try_state::<Engine>()
+                .is_some_and(|engine| {
+                    engine
+                        .note_browser_navigation(&navigation_chat, tab, target.as_str())
+                        .is_ok()
+                });
+            if accepted {
+                if let Ok(mut pending) = BROWSER_NAVIGATION_PENDING
+                    .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+                    .lock()
+                {
+                    pending.insert(
+                        navigation_label.clone(),
+                        (target.to_string(), std::time::Instant::now()),
+                    );
+                }
+            }
+            accepted
+        })
+        .on_document_title_changed(move |view, title| {
+            let title = title
+                .chars()
+                .filter(|ch| !ch.is_control())
+                .take(100)
+                .collect::<String>();
+            if let Some(engine) = view.app_handle().try_state::<Engine>() {
+                engine.note_browser_title(&title_chat, tab, &title);
+            }
+        })
+        .on_download(move |webview, event| match event {
+            tauri::webview::DownloadEvent::Requested { url, destination } => {
+                let approved = BROWSER_DOWNLOAD_GRANTS
+                    .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+                    .lock()
+                    .ok()
+                    .and_then(|mut grants| grants.remove(&download_label))
+                    .is_some_and(|(at, approved_url)| {
+                        at.elapsed() < Duration::from_secs(5)
+                            && approved_url.as_str() == url.as_str()
+                    });
+                if !approved {
+                    let _ = webview.app_handle().emit("agentic-browser-download", json!({
+                        "url": url.as_str(), "saved": false, "message": "A page started a download without a matching browser tool action. The download was blocked."
+                    }));
+                    return false;
+                }
+                let Ok(directory) = download_app.path().download_dir() else {
+                    return false;
+                };
+                if std::fs::create_dir_all(&directory).is_err() {
+                    return false;
+                }
+                let requested = destination
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| String::from("download"));
+                *destination = unique_download_path(&directory, &requested);
+                true
+            }
+            tauri::webview::DownloadEvent::Finished { url, path, success } => {
+                let _ = download_app.emit("agentic-browser-download", json!({
+                    "url": url.as_str(), "saved": success,
+                    "path": path.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default(),
+                    "message": if success { "Browser download finished." } else { "Browser download failed." }
+                }));
+                true
+            }
+            _ => false,
+        })
+        .on_new_window(move |target, _| {
+            let result = autumn_natter_core::search::parse_public_browser_url(target.as_str())
+                .and_then(|target| {
+                    popup_app
+                        .try_state::<Engine>()
+                        .ok_or_else(|| String::from("The browser engine is unavailable."))?
+                        .note_browser_new_tab(&popup_chat, target.as_str())
+                        .map(|_| ())
+                });
+            let _ = result;
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .on_permission_request(|_, _| tauri::webview::PermissionResponse::Deny);
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| String::from("The main application window is unavailable."))?;
+    let view = add_browser_view(window, builder, position, size)?;
+    view.show().map_err(|problem| problem.to_string())?;
+    visible_views
+        .lock()
+        .map_err(|_| String::from("The browser panel state is busy."))?
+        .insert(label);
+    Ok(json!({"ok": true, "url": address}))
+}
+
+#[tauri::command]
+pub async fn browser_window_action(
+    app: AppHandle,
+    engine: State<'_, Engine>,
+    tab: u64,
+    action: Value,
+) -> Result<Value, String> {
+    let snap = engine.snapshot();
+    if !snap.tool_switches.browser_use {
+        return Err(String::from("Turn on Browser use before using the page."));
+    }
+    let label = native_browser_label(&snap.chat_id, tab);
+    let view = app
+        .get_webview(&label)
+        .ok_or_else(|| String::from("Open the browser panel before using its page."))?;
+    if action["action"] == "screenshot" {
+        let (image, width, height) = native_browser_screenshot(&app, &label)?;
+        return Ok(
+            json!({"ok": true, "title": "", "image": image, "width": width, "height": height,
+            "text": "Screenshot of the visible browser page."}),
+        );
+    }
+    let screenshot_size = BROWSER_SCREENSHOT_SIZES.get().and_then(|sizes| {
+        sizes.lock().ok()?.get(&label).copied()
+    });
+    let (scale_x, scale_y) = browser_viewport(&label).zip(screenshot_size)
+        .map(|(rect, (width, height))| (rect.width / f64::from(width), rect.height / f64::from(height)))
+        .unwrap_or((1.0, 1.0));
+    let script = browser_action_script(&action, None, scale_x, scale_y)?;
+    let result = evaluate_browser_action(&view, script)?;
+    let Some(url) = result["download_request"].as_str().filter(|_| action["action"] == "click") else {
+        return Ok(result);
+    };
+    let target = autumn_natter_core::search::parse_public_browser_url(url)?;
+    let script = browser_action_script(&action, Some(target.as_str()), scale_x, scale_y)?;
+    grant_browser_download(&label, target.as_str());
+    let result = evaluate_browser_action(&view, script);
+    if !result.as_ref().is_ok_and(|value| value["download_started"] == true) {
+        revoke_browser_download(&label);
+    }
+    result
+}
+
+fn evaluate_browser_action(view: &tauri::Webview, script: String) -> Result<Value, String> {
+    let (send, receive) = mpsc::sync_channel(1);
+    view.eval_with_callback(script, move |result| {
+        let _ = send.send(result);
+    }).map_err(|problem| problem.to_string())?;
+    let result = receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The browser page did not return an action result."))?;
+    let parsed: Value = serde_json::from_str(&result).unwrap_or_else(|_| Value::String(result));
+    Ok(parsed.as_str()
+        .and_then(|inner| serde_json::from_str::<Value>(inner).ok())
+        .unwrap_or(parsed))
+}
+
+fn grant_browser_download(label: &str, url: &str) {
+    if let Ok(mut grants) = BROWSER_DOWNLOAD_GRANTS
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+    {
+        grants.insert(label.to_string(), (std::time::Instant::now(), url.to_string()));
+        grants.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(5));
+    }
+}
+
+fn revoke_browser_download(label: &str) {
+    if let Some(grants) = BROWSER_DOWNLOAD_GRANTS.get() {
+        if let Ok(mut grants) = grants.lock() {
+            grants.remove(label);
+        }
+    }
+}
+
+fn unique_download_path(directory: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let cleaned = name
+        .chars()
+        .filter(|ch| {
+            !ch.is_control() && !matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        })
+        .take(160)
+        .collect::<String>();
+    let mut cleaned = cleaned.trim_matches([' ', '.']).to_string();
+    if cleaned.is_empty() {
+        cleaned = String::from("download");
+    }
+    let stem = cleaned
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ["COM", "LPT"].iter().any(|prefix| {
+            stem.strip_prefix(prefix)
+                .is_some_and(|suffix| {
+                    suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9')
+                })
+        })
+    {
+        cleaned.insert(0, '_');
+    }
+    let name = cleaned.as_str();
+    let candidate = directory.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let path = std::path::Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+    let extension = path.extension().and_then(|value| value.to_str());
+    for number in 1..10_000u32 {
+        let numbered = match extension {
+            Some(extension) => format!("{stem} ({number}).{extension}"),
+            None => format!("{stem} ({number})"),
+        };
+        let candidate = directory.join(numbered);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    directory.join(format!(
+        "download-{}.bin",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |time| time.as_secs())
+    ))
+}
+
+fn native_browser_label(chat: &str, tab: u64) -> String {
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    chat.hash(&mut hash);
+    format!("agentic-browser-{:016x}-{tab}", hash.finish())
+}
+
+fn native_browser_screenshot(
+    app: &AppHandle,
+    label: &str,
+) -> Result<(String, u32, u32), String> {
+    let shown = BROWSER_VISIBLE.get().and_then(|shown| {
+        shown.lock().ok().map(|shown| shown.contains(label))
+    }).unwrap_or(false);
+    let viewport = browser_viewport(label).filter(|_| shown)
+        .ok_or_else(|| String::from("The browser page is not positioned in the visible panel."))?;
+    let image = capture_browser_view(app, label, viewport)?;
+    let (mut bytes, mut width, mut height) = encode_browser_png(&image, 1_440)?;
+    // The engine accepts at most 3 MB of base64. Retry at an edge where even an
+    // uncompressed RGBA image fits, so a detailed page still reaches the model.
+    if bytes.len() > 2_250_000 {
+        (bytes, width, height) = encode_browser_png(&image, 720)?;
+    }
+    if let Ok(mut sizes) = BROWSER_SCREENSHOT_SIZES
+        .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+        .lock()
+    {
+        sizes.insert(label.to_string(), (width, height));
+    }
+    Ok((format!("data:image/png;base64,{}", STANDARD.encode(bytes)), width, height))
+}
+
+#[cfg(target_os = "linux")]
+fn capture_browser_view(
+    app: &AppHandle,
+    label: &str,
+    _viewport: BrowserViewport,
+) -> Result<image::RgbaImage, String> {
+    use gtk::prelude::*;
+    use webkit2gtk::{SnapshotOptions, SnapshotRegion, WebViewExt};
+
+    let view = app.get_webview(label)
+        .ok_or_else(|| String::from("Open the browser panel before taking a screenshot."))?;
+    let (send, receive) = mpsc::sync_channel(1);
+    // Snapshot the page itself. Wayland doesn't expose global window positions, and
+    // desktop capture could include another window covering the sidebar.
+    view.with_webview(move |place| {
+        let webview = place.inner();
+        if !webview.is_mapped() {
+            let _ = send.send(Err(String::from("The native browser page is hidden.")));
+            return;
+        }
+        webview.snapshot(SnapshotRegion::Visible, SnapshotOptions::NONE,
+            None::<&gtk::gio::Cancellable>, move |result| {
+                let image = result.map_err(|problem| problem.to_string())
+                    .and_then(browser_snapshot_pixels);
+                let _ = send.send(image);
+            });
+    }).map_err(|problem| problem.to_string())?;
+    receive.recv_timeout(Duration::from_secs(8))
+        .map_err(|_| String::from("The native browser did not return a screenshot."))?
+}
+
+#[cfg(target_os = "linux")]
+fn browser_snapshot_pixels(surface: gtk::cairo::Surface) -> Result<image::RgbaImage, String> {
+    let surface = gtk::cairo::ImageSurface::try_from(surface)
+        .map_err(|_| String::from("The native browser returned an unsupported screenshot surface."))?;
+    let (width, height) = (surface.width(), surface.height());
+    if width < 1 || height < 1 || i64::from(width) * i64::from(height) > 24_000_000 {
+        return Err(String::from("The native browser screenshot has invalid dimensions."));
+    }
+    let pixbuf = gtk::gdk::pixbuf_get_from_surface(&surface, 0, 0, width, height)
+        .ok_or_else(|| String::from("The native browser screenshot could not be read."))?;
+    let channels = pixbuf.n_channels() as usize;
+    let stride = pixbuf.rowstride() as usize;
+    let pixels = pixbuf.read_pixel_bytes();
+    let pixels = pixels.as_ref();
+    Ok(image::RgbaImage::from_fn(width as u32, height as u32, |x, y| {
+        let offset = y as usize * stride + x as usize * channels;
+        let alpha = if channels == 4 { pixels[offset + 3] } else { 255 };
+        image::Rgba([pixels[offset], pixels[offset + 1], pixels[offset + 2], alpha])
+    }))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn capture_browser_view(
+    app: &AppHandle,
+    _label: &str,
+    viewport: BrowserViewport,
+) -> Result<image::RgbaImage, String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| String::from("The main application window is unavailable."))?;
+    let inner = main
+        .inner_position()
+        .map_err(|problem| problem.to_string())?;
+    let scale = main.scale_factor().map_err(|problem| problem.to_string())?;
+    let title = main.title().map_err(|problem| problem.to_string())?;
+    let captured = autumn_natter_core::desktop::capture_application_window(
+        std::process::id(),
+        &title,
+    )?;
+    let image = captured.image;
+    let left = inner.x - captured.x
+        + (viewport.x * scale).round().clamp(0.0, i32::MAX as f64) as i32;
+    let top = inner.y - captured.y
+        + (viewport.y * scale).round().clamp(0.0, i32::MAX as f64) as i32;
+    let width = (viewport.width * scale).round().max(1.0) as u32;
+    let height = (viewport.height * scale).round().max(1.0) as u32;
+    if left < 0
+        || top < 0
+        || width == 0
+        || height == 0
+        || left as u32 + width > image.width()
+        || top as u32 + height > image.height()
+        || u64::from(width) * u64::from(height) > 24_000_000
+    {
+        return Err(String::from(
+            "The browser panel bounds are outside the application screenshot.",
+        ));
+    }
+    Ok(image::imageops::crop_imm(&image, left as u32, top as u32, width, height).to_image())
+}
+
+fn encode_browser_png(image: &image::RgbaImage, max_edge: u32) -> Result<(Vec<u8>, u32, u32), String> {
+    let (width, height) = image.dimensions();
+    let resize = (f64::from(max_edge) / f64::from(width.max(height))).min(1.0);
+    let shot_width = (f64::from(width) * resize).round().max(1.0) as u32;
+    let shot_height = (f64::from(height) * resize).round().max(1.0) as u32;
+    let resized;
+    let image = if (shot_width, shot_height) == (width, height) { image } else {
+        resized = image::imageops::resize(
+            image,
+            shot_width,
+            shot_height,
+            image::imageops::FilterType::Triangle,
+        );
+        &resized
+    };
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, shot_width, shot_height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|problem| problem.to_string())?;
+        writer
+            .write_image_data(image.as_raw())
+            .map_err(|problem| problem.to_string())?;
+    }
+    Ok((bytes, shot_width, shot_height))
+}
+
+fn browser_action_script(
+    action: &Value,
+    download_url: Option<&str>,
+    scale_x: f64,
+    scale_y: f64,
+) -> Result<String, String> {
+    let action = serde_json::to_string(action).map_err(|problem| problem.to_string())?;
+    let download = json!(download_url);
+    let pointer = include_str!("../../frontend/agent-pointer.js");
+    Ok(format!(
+        r#"(function(a,downloadUrl,scaleX,scaleY){{
+          {pointer}
+          for(const k of ['x','to_x'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleX;
+          for(const k of ['y','to_y'])if(Number.isFinite(+a[k]))a[k]=Number(a[k])*scaleY;
+          const clean=(v,n=60000)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
+          const pageText=(node,limit)=>String(node&&(node.innerText||node.textContent)||'').replace(/(?:Uh oh!\s*)?There was an error while loading\.\s*Please reload this page\s*\.?/gi,'').slice(0,limit||30000);
+          const visible=e=>{{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>1&&r.height>1&&s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0'}};
+          const name=e=>clean(e.getAttribute('aria-label')||e.getAttribute('placeholder')||e.innerText||e.textContent||e.title||e.name||e.tagName.toLowerCase(),180);
+          const role=e=>e.getAttribute('role')||(e.tagName==='A'?'link':e.tagName==='BUTTON'?'button':e.tagName==='SELECT'?'combobox':e.tagName==='INPUT'?(e.type==='checkbox'?'checkbox':e.type==='radio'?'radio':'textbox'):e.tagName==='TEXTAREA'||e.isContentEditable?'textbox':'element');
+          const controls=()=>{{let out=[],refs=new Map(),i=1;for(const e of document.querySelectorAll('a[href],button,input:not([type=hidden]),textarea,select,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[tabindex]')){{if(!visible(e))continue;const ref='r'+i++;refs.set(ref,e);out.push({{ref,role:role(e),name:name(e),href:e.tagName==='A'?e.href:'',type:e.type||'',disabled:!!e.disabled}});if(out.length>=400)break}}window.__autumnNatterBrowserRefs=refs;return out}};
+          const refs=window.__autumnNatterBrowserRefs||new Map(),op=String(a.action||a.op||''),el=refs.get(String(a.ref||''))||((Number.isFinite(+a.x)&&Number.isFinite(+a.y))?document.elementFromPoint(+a.x,+a.y):null);
+          const result=(text,extra={{}})=>Object.assign({{ok:true,title:document.title,text}},extra);
+          const point=(target,x,y)=>{{
+            if(Number.isFinite(x)&&Number.isFinite(y))return [x,y];
+            const r=target.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2];
+          }};
+          if(el&&['click','move','drag','type','select'].includes(op))autumnAgentPlacePointer(...point(el,a.x,a.y));
+          if(op==='snapshot'){{const links=controls();return result(pageText(document.body,a.full_page?80000:30000),{{links}})}}
+          if(op==='find'){{const q=String(a.query||'').toLowerCase(),links=controls().filter(x=>(x.name+' '+x.role).toLowerCase().includes(q)),text=pageText(document.body,30000).split(/\n+/).filter(x=>x.toLowerCase().includes(q)).slice(0,12).join('\n');return result(text,{{links}})}}
+          if(op==='evaluate'){{try{{const value=(new Function(String(a.script||'')))();if(value&&typeof value.then==='function')return {{ok:false,error:'This browser action supports synchronous JavaScript results only.'}};return result(typeof value==='string'?value:JSON.stringify(value))}}catch(e){{return {{ok:false,error:'Page JavaScript failed: '+clean(e&&e.message,500)}}}}}}
+          if(op==='click'){{
+            if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};
+            if((el.type||'').toLowerCase()==='file')return {{ok:false,error:'File uploads are blocked. Ask the user to choose a file themselves.'}};
+            const link=el.closest('a[href]'),href=link?.href,label=name(el);
+            const download=href&&(link.hasAttribute('download')||/\bdownload\b/i.test(label)||/\.(pdf|zip|gz|tar|7z|rar|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|mp4|mp3)(?:$|[?#])/i.test(href));
+            if(downloadUrl&&(!download||href!==downloadUrl))return {{ok:false,error:'The download target changed. Take a fresh snapshot.'}};
+            if(download&&!downloadUrl)return {{ok:true,download_request:href}};
+            if(href&&!download&&new URL(href).origin!==location.origin)return {{ok:true,navigate:href,title:document.title,text:'Opened '+label+'.'}};
+            const [x,y]=point(el,a.x,a.y);
+            el.dispatchEvent(new MouseEvent('click',{{bubbles:true,cancelable:true,clientX:x,clientY:y}}));
+            return result('Clicked '+label+'.',{{download_started:!!(download&&downloadUrl)}});
+          }}
+          if(op==='move'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const [x,y]=point(el,a.x,a.y);el.dispatchEvent(new MouseEvent('mouseover',{{bubbles:true,clientX:x,clientY:y}}));el.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:x,clientY:y}}));return result('Moved over '+name(el)+'.')}}
+          if(op==='drag'){{const to=refs.get(String(a.to_ref||''));if(!el||(!to&&(!Number.isFinite(+a.to_x)||!Number.isFinite(+a.to_y))))return {{ok:false,error:'The drag points are no longer valid. Take a fresh snapshot.'}};const [sx,sy]=point(el,a.x,a.y),[tx,ty]=point(to,a.to_x,a.to_y);el.dispatchEvent(new MouseEvent('mousedown',{{bubbles:true,clientX:sx,clientY:sy,button:0}}));document.dispatchEvent(new MouseEvent('mousemove',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));document.dispatchEvent(new MouseEvent('mouseup',{{bubbles:true,clientX:tx,clientY:ty,button:0}}));autumnAgentPlacePointer(tx,ty);return result('Dragged the page item.')}}
+          if(op==='type'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};if((el.type||'').toLowerCase()==='password'||/password|passcode|card number|security code|payment/i.test(name(el)))return {{ok:false,error:'The browser will not type into password or payment fields.'}};if(!('value'in el)&&!el.isContentEditable)return {{ok:false,error:'That ref is not a text field.'}};if(el.isContentEditable)el.textContent=String(a.text||'');else{{const p=el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(el,String(a.text||''))}}el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:String(a.text||'')}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));if(a.submit){{const f=el.form||el.closest&&el.closest('form');if(f){{f.requestSubmit()}}}}return result('Typed into '+name(el)+'.')}}
+          if(op==='select'){{if(!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const v=String(a.value||'');if(el.tagName==='SELECT'){{const option=Array.from(el.options).find(o=>o.label.toLowerCase()===v.toLowerCase()||o.value===v);if(!option)return {{ok:false,error:'No dropdown option matched.'}};el.value=option.value}}else if(el.type==='checkbox'||el.type==='radio')el.checked=/^(true|yes|1)$/i.test(v);else return {{ok:false,error:'That ref is not a select, checkbox, or radio.'}};el.dispatchEvent(new Event('input',{{bubbles:true}}));el.dispatchEvent(new Event('change',{{bubbles:true}}));return result('Changed '+name(el)+'.')}}
+          if(op==='scroll'){{if(a.ref&&!el)return {{ok:false,error:'That ref is no longer on the page. Take a fresh snapshot.'}};const amount=Math.max(1,Math.min(30,Number(a.amount)||1));if(el)el.scrollIntoView({{block:'center'}});else window.scrollBy({{top:(a.direction==='up'?-1:1)*Math.max(200,innerHeight*.75)*amount,behavior:'instant'}});return result(pageText(document.body,30000),{{links:controls()}})}}
+          if(op==='press'){{const target=el||document.activeElement||document.body,key=String(a.key||'').toLowerCase(),form=target.form||target.closest&&target.closest('form');if((key==='enter'||key==='return')&&form){{form.requestSubmit(target.matches&&target.matches('button[type=submit],input[type=submit]')?target:undefined);return result('Submitted the page form.')}}if((key==='enter'||key==='return')&&target.matches&&target.matches('a,button,[role=button]')){{target.click();return result('Activated '+name(target)+'.')}}if((key===' '||key==='space')&&target.matches&&target.matches('button,[role=button],input[type=checkbox],input[type=radio]')){{target.click();return result('Activated '+name(target)+'.')}}if(key==='tab'){{const list=Array.from(document.querySelectorAll('a[href],button,input:not([disabled]),textarea,select,[tabindex]:not([tabindex="-1"])')).filter(visible),at=list.indexOf(document.activeElement),next=list[(at+1)%Math.max(1,list.length)];if(next)next.focus();return result('Moved focus to '+(next?name(next):'the next control')+'.')}}if((key==='backspace'||key==='delete')&&(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)){{const start=target.selectionStart,end=target.selectionEnd,from=start===end?Math.max(0,start-(key==='backspace'?1:0)):start,to=start===end?Math.min(target.value.length,end+(key==='delete'?1:0)):end;target.setRangeText('',from,to,'end');target.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'deleteContentBackward'}}));return result('Edited '+name(target)+'.')}}const map={{return:'Enter',esc:'Escape',space:' ',up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'}};const actual=map[key]||a.key;target.dispatchEvent(new KeyboardEvent('keydown',{{key:actual,bubbles:true,cancelable:true}}));target.dispatchEvent(new KeyboardEvent('keyup',{{key:actual,bubbles:true,cancelable:true}}));return result('Pressed '+clean(actual,20)+'.')}}
+          return {{ok:false,error:'Unsupported native browser action.'}};
+        }})({action},{download},{scale_x},{scale_y})"#
+    ))
 }
 
 // One action of the user. The name is the same as the route of the remote page, so the two
@@ -37,6 +743,70 @@ pub async fn action(
 ) -> Result<Value, String> {
     let text = body.map(|value| value.to_string()).unwrap_or_default();
     Ok(web::action(&engine, &path, &text))
+}
+
+// Check the address before opening the remote program in a separate window. The page there uses
+// the same HTTP API as a browser, and the local program stays open in its own window.
+#[tauri::command]
+pub async fn connect_remote(app: AppHandle, address: String) -> Result<Value, String> {
+    let address = address.trim();
+    let address = if address.contains("://") {
+        address.to_string()
+    } else {
+        format!("http://{address}")
+    };
+    let mut target = tauri::Url::parse(&address)
+        .map_err(|problem| format!("Enter a valid web address: {problem}"))?;
+    if !matches!(target.scheme(), "http" | "https")
+        || target.host_str().is_none()
+        || !target.username().is_empty()
+        || target.password().is_some()
+        || target.path() != "/"
+        || target.query().is_some()
+        || target.fragment().is_some()
+    {
+        return Err(
+            "Enter the web address of the remote program, without a path or sign-in details."
+                .into(),
+        );
+    }
+    target.set_path("/");
+
+    let state_url = target
+        .join("api/state?since=-1")
+        .map_err(|problem| format!("The remote address is not valid: {problem}"))?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(5))
+        .build();
+    let response = agent.get(state_url.as_str()).call().map_err(|problem| {
+        format!("Could not reach an Autumn Natter remote program at this address: {problem}")
+    })?;
+    let state: Value = response.into_json().map_err(|problem| {
+        format!("The address did not return a readable program state: {problem}")
+    })?;
+    if !state.get("rev").is_some_and(Value::is_number)
+        || !state.get("models").is_some_and(Value::is_array)
+    {
+        return Err("That address did not return an Autumn Natter remote program.".into());
+    }
+
+    if let Some(window) = app.get_webview_window("remote-program") {
+        window
+            .navigate(target.clone())
+            .map_err(|problem| format!("The remote window could not be opened: {problem}"))?;
+        window
+            .set_focus()
+            .map_err(|problem| format!("The remote window could not be focused: {problem}"))?;
+    } else {
+        WebviewWindowBuilder::new(&app, "remote-program", WebviewUrl::External(target.clone()))
+            .title("Autumn Natter — Remote")
+            .inner_size(1180.0, 760.0)
+            .min_inner_size(620.0, 420.0)
+            .build()
+            .map_err(|problem| format!("The remote window could not be opened: {problem}"))?;
+    }
+
+    Ok(json!({ "ok": true, "address": target.as_str() }))
 }
 
 // One attachment of a message, for the block the window draws. The page asks by the id the
@@ -76,10 +846,7 @@ pub async fn get_gift(engine: State<'_, Engine>, path: String) -> Result<Value, 
 }
 
 #[tauri::command]
-pub async fn get_gift_zip(
-    engine: State<'_, Engine>,
-    paths: Vec<String>,
-) -> Result<Value, String> {
+pub async fn get_gift_zip(engine: State<'_, Engine>, paths: Vec<String>) -> Result<Value, String> {
     Ok(web::gift_zip_value(&engine, &paths))
 }
 
@@ -310,7 +1077,9 @@ pub fn clipboard_take() -> Result<Value, String> {
     // another thread answers that it did nothing, rather than ask GTK of a thread it does not
     // belong to.
     if !gtk::glib::MainContext::default().is_owner() {
-        return Err("the clipboard of the computer is read on the thread of the window".to_string());
+        return Err(
+            "the clipboard of the computer is read on the thread of the window".to_string(),
+        );
     }
     let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
     // The clipboard is first asked what it holds, and only then reached for. Every ask of the
@@ -422,11 +1191,8 @@ mod tests {
     fn room() -> std::path::PathBuf {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let place = std::env::temp_dir().join(format!(
-            "atnatter-window-test-{}-{}",
-            std::process::id(),
-            n
-        ));
+        let place =
+            std::env::temp_dir().join(format!("atnatter-window-test-{}-{}", std::process::id(), n));
         let _ = std::fs::remove_dir_all(&place);
         std::fs::create_dir_all(&place).expect("a test place for the files can be made");
         place
@@ -481,10 +1247,17 @@ mod tests {
             place.join("nowhere.txt").to_string_lossy().into_owned(),
         ];
         let made = taken(&places);
-        assert_eq!(made.len(), 2, "a folder and a place of nowhere give nothing");
+        assert_eq!(
+            made.len(),
+            2,
+            "a folder and a place of nowhere give nothing"
+        );
         assert_eq!(made[0]["kind"], "file", "text that is not text is a file");
         assert_eq!(made[1]["kind"], "image");
-        assert_eq!(made[1]["data"], "", "an image too big for the space is not read");
+        assert_eq!(
+            made[1]["data"], "",
+            "an image too big for the space is not read"
+        );
         places.clear();
         let _ = std::fs::remove_dir_all(&place);
     }

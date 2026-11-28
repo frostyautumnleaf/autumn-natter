@@ -63,31 +63,30 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Show the user a step by step list of the work in a block of its own under your answer. Use it when the work has several ordered steps the user will want to follow one at a time: a plan of what you are about to do, the stages of a procedure you just carried out, or the steps the user must take themselves. Give as many steps as the work needs. Each step has a short label for its button and the text of the step, and the whole block has a title. Call this once, at the END of the answer, after the work and the text is done: the block appears only when the answer has stopped, and a second call in the same answer replaces the first. Do not use it for a task of one or two steps, and do not repeat in the block text you already wrote in the answer.",
+                "Show a titled, ordered list when the user needs several steps to follow. Give each step a short label and useful instructions. Call once at the end of your answer, after the work is complete; a later call replaces it. Omit for one or two steps and avoid repeating your answer.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "The header of the block, such as 'Steps to finish the install'. Keep it short. Leave it out and the block is headed 'Steps'."
+                        "description": "Short heading. Defaults to 'Steps'."
                     },
                     "steps": {
                         "type": "array",
-                        "description": "The steps, in the order the user reads them. As many as the work needs. A plain string is a step whose text is that string and whose button is named from it.",
+                        "description": "Ordered steps, each a string or an object with label and content.",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {
-                                    "type": "string",
-                                    "description": "The short text on the button for this step, such as 'Install' or 'Run the tests'. Leave it out and the button is named from the start of the text."
-                                },
-                                "content": {
-                                    "type": "string",
-                                    "description": "The text of this step, shown in the block when the user selects it. One or two sentences, or the commands the user has to run."
+                            "oneOf": [
+                                { "type": "string", "description": "Step text; its opening words label the button." },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": { "type": "string", "description": "Short button label; defaults to the content's opening words." },
+                                        "content": { "type": "string", "description": "Instructions or commands shown when selected." }
+                                    },
+                                    "required": ["content"]
                                 }
-                            },
-                            "required": ["content"]
+                            ]
                         }
                     }
                 },

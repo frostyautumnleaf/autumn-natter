@@ -42,7 +42,8 @@ pub fn start(cfg: Config) -> Result<(), String> {
     let port = cfg.remote_port;
     let upnp_enabled = cfg.upnp_enabled;
     // The engine is the same one the desktop window drives.
-    let engine = Engine::start(cfg);
+    let mut engine = Engine::start(cfg);
+    engine.set_computer_use_available(false);
 
     let lan = util::lan_address();
     let bind = lan.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
@@ -106,12 +107,24 @@ fn handle(engine: &Engine, mut request: Request) {
         ("GET", "/") => {
             let _ = request.respond(
                 Response::from_string(web::PAGE)
-                    .with_header(content_type("text/html; charset=utf-8")),
+                    .with_header(content_type("text/html; charset=utf-8"))
+                    .with_header(header("cache-control", "no-cache")),
             );
         }
         ("GET", "/frontend/corporate.js") => {
             let _ = request.respond(Response::from_string(include_str!("../frontend/corporate.js"))
-                .with_header(content_type("text/javascript; charset=utf-8")));
+                .with_header(content_type("text/javascript; charset=utf-8"))
+                .with_header(header("cache-control", "no-cache")));
+        }
+        ("GET", "/agentic-browser.js") => {
+            let _ = request.respond(Response::from_string(include_str!("../frontend/agentic-browser.js"))
+                .with_header(content_type("text/javascript; charset=utf-8"))
+                .with_header(header("cache-control", "no-cache")));
+        }
+        ("GET", "/agent-pointer.js") => {
+            let _ = request.respond(Response::from_string(include_str!("../frontend/agent-pointer.js"))
+                .with_header(content_type("text/javascript; charset=utf-8"))
+                .with_header(header("cache-control", "no-cache")));
         }
         ("GET", "/autumn-natter.svg") | ("GET", "/favicon.ico") => {
             let _ = request.respond(
@@ -125,6 +138,18 @@ fn handle(engine: &Engine, mut request: Request) {
             let snap = engine.snapshot();
             let value = web::state(&snap, query_u64(&query, "since"));
             let _ = request.respond(json_response(&value));
+        }
+        ("GET", "/api/browser_page") => {
+            let tab = query_value(&query, "tab").parse::<u64>().unwrap_or(0);
+            match engine.browser_page(tab) {
+                Some((url, html)) => {
+                    let _ = request.respond(json_response(&serde_json::json!({"url":url,"html":html}))
+                        .with_header(header("cache-control", "no-store")));
+                }
+                None => {
+                    let _ = request.respond(json_status(404, "That browser page is no longer available."));
+                }
+            }
         }
         // One attachment of a message, for the block the page draws. The text of a file and the
         // bytes of an image return under the same three words: name, type, data.

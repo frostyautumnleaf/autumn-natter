@@ -78,7 +78,24 @@ base64 = "0.22"
 # of llama.cpp reads a WebP only through ffmpeg, which is on some machines and not on others.
 # Both of these are already in the tree through resvg, so neither adds anything to the binary.
 image-webp = "0.2"
+# Resize desktop captures before sending them to a vision model.
+image = { version = "0.25", default-features = false, features = ["png"] }
 png = "0.18"
+# X11 handles Linux desktop capture directly; Wayland uses the desktop portals, without requiring
+# PipeWire development headers at build time.
+enigo = "0.6.1"
+url = "2.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", features = ["randr", "render", "xinput", "xtest"] }
+wayland-client = "0.31"
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+ashpd = { version = "0.12.3", default-features = false, features = ["async-std"] }
+futures = { version = "0.3", default-features = false, features = ["executor"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+xcap = "0.9.10"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

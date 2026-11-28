@@ -1,7 +1,5 @@
-// Corporate display: one block for an answer, with private reasoning hidden and each assistant
-// message shown as its own sub-block. The title follows the current assistant update or tool
-// action; completed tool results are summarized in the block and the final assistant message
-// remains outside the card. The strings below also let older saved cards keep their shape.
+// Corporate display groups thinking and adjacent tool calls in activity cards. Assistant
+// messages appear between the cards. The older work blocks can still be read from saved chats.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,6 +7,7 @@ use serde_json::Value;
 use crate::display;
 use crate::download;
 use crate::editfile;
+use crate::goal;
 use crate::search;
 use crate::steps;
 use crate::suggest;
@@ -134,6 +133,9 @@ fn doing_word(name: &str) -> &'static str {
         download::NAME => "Offering files",
         viewimage::NAME | viewimage::ONE_NAME => "Looking at a picture",
         summarise::NAME => "Summarising the conversation",
+        goal::CRITERIA_NAME => "Setting acceptance criteria",
+        goal::COMPLETE_NAME => "Checking goal completion",
+        goal::PAUSE_NAME => "Waiting for user input",
         NAME => "Writing the short",
         _ => WORKING,
     }
@@ -236,6 +238,9 @@ fn done_word(name: &str) -> &'static str {
         download::NAME => "Offered files",
         viewimage::NAME | viewimage::ONE_NAME => "Viewed image",
         summarise::NAME => "Summarised the conversation",
+        goal::CRITERIA_NAME => "Set acceptance criteria",
+        goal::COMPLETE_NAME => "Verified goal completion",
+        goal::PAUSE_NAME => "Paused for user input",
         NAME => "Wrote the short",
         _ => "Worked",
     }
@@ -273,6 +278,9 @@ fn doing_plural(name: &str) -> &'static str {
         download::NAME => "Offering files",
         viewimage::NAME | viewimage::ONE_NAME => "Looking at pictures",
         summarise::NAME => "Summarising the conversation",
+        goal::CRITERIA_NAME => "Setting acceptance criteria",
+        goal::COMPLETE_NAME => "Checking goal completion",
+        goal::PAUSE_NAME => "Waiting for user input",
         NAME => "Writing the short",
         _ => "Working",
     }
@@ -293,6 +301,9 @@ fn known(name: &str) -> bool {
             | viewimage::NAME
             | viewimage::ONE_NAME
             | summarise::NAME
+            | goal::CRITERIA_NAME
+            | goal::COMPLETE_NAME
+            | goal::PAUSE_NAME
             | NAME
             | FINISH_NAME
     )
@@ -809,18 +820,13 @@ fn group_of(run: &[WorkBlock]) -> WorkBlock {
     }
 }
 
-// The text the model gets when the corporate display remains. Progress messages become ordered
-// sub-blocks, and the final answer remains a normal chat message outside the card.
-// Short narration before and after each action is the account the user sees while the model works.
+// The text the model gets when the corporate display is on. Its progress and final messages
+// appear in the chat as it works.
 pub fn system_prompt() -> String {
     String::from(
-        "Corporate display is on. One progress card belongs to each answer. The user cannot see your private reasoning or tool-call messages. Every assistant progress message outside private reasoning is shown as its own ordered sub-block inside the card. Your final answer is shown once as a normal chat message outside the card. The card title follows your current action; do not repeat progress updates below the card.\n\
-         Never use a progress, logging, or finish tool; none is available or needed. Use normal assistant text to keep the user informed. For every task that takes more than one step, begin with a short, concrete sentence saying what you are about to do before you inspect, search, call a tool, edit, run a command, or otherwise act. Do not make the user infer your plan from hidden reasoning or from a tool call.\n\
-         After each action, report its useful outcome in a new, brief assistant message before starting the next action. Say what you found, changed, created, tested, or what failed, then name the next step when one remains. Keep each update focused on one action or result; each message becomes its own sub-block, in the order written. Do not combine several unrelated steps into one update, repeat the full request, or send empty status messages.\n\
-         Every non-final assistant message must be one concise line: one short sentence about the next action or the result just received. Do not use line breaks, bullets, headings, or multiple paragraphs in progress messages. Only the final answer may contain multiple lines or fuller explanation.\n\
-         Before a substantial investigation or review, give a short user-visible update such as 'I will compare the two implementations before choosing the fix.' After the check, report its useful result. Never expose private chain-of-thought; report only the purpose of the check and its result. Keep the user informed during long work with concise updates when the current action changes or a meaningful result arrives.\n\
-         Before a tool call, tell the user what the call will do. After its result, explain the relevant outcome before making another call. Do this for each call, including consecutive calls. For file changes, identify the files or behavior changed and mention relevant checks and their outcome. Be accurate: do not claim a check passed or an action succeeded unless it did.\n\
-         When the work is complete, write one clear final assistant message. It appears outside the card as the normal chat response. Summarize the result and any important remaining limitation there; do not repeat it in a progress sub-block or use a special tool or marker.",
+        "Corporate display is on. Your progress and final answer appear as ordinary chat messages. Thinking and tool calls appear in activity cards; private reasoning and tool syntax are hidden.\n\
+         For multi-step work, start with one concise sentence describing your next action. Before each tool call, briefly say what it will do; after it returns, report the useful result before continuing. Keep each non-final message to one short line, avoid empty or repeated updates, and never reveal private reasoning.\n\
+         When finished, give one accurate final answer with the result and any important limitation.",
     )
 }
 
@@ -957,7 +963,7 @@ mod tests {
         assert_eq!(thought_head(0), "Thought for 1 second");
         assert_eq!(thought_head(1400), "Thought for 1 second");
         assert_eq!(thought_head(12_400), "Thought for 12 seconds");
-        let mut blocks = Vec::new();
+        let blocks = Vec::new();
         assert_eq!(head_of_answer(&blocks, 0), DONE);
         assert_eq!(head_of_answer(&blocks, 4200), "Thought for 4 seconds");
     }

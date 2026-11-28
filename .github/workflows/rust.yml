@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Install the web view
+    - name: Install desktop dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
@@ -32,3 +32,11 @@ jobs:
           libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev pkg-config
     - name: Build the window
       run: cargo build --release
+
+  check-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Check the program on Windows
+      run: cargo check --workspace

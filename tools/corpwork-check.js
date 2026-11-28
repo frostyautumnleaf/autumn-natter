@@ -78,8 +78,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       ])])
     ])];
 
-    // A context of two answers: progress stays in the first card, its final output sits outside,
-    // and the other answer has no visible thought sub-block.
+    // Two answers with reasoning before prose and older saved work between messages.
     var talk = [
       said(1, 'You', 'Fix the order and run the tests.'),
       said(2, 'Assistant', 'I will read the parser first.',
@@ -103,23 +102,25 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
       return s;
     }
 
-    function cards(box) { return Array.from(box.querySelectorAll('.turn > .work')); }
+    function cards(box) { return Array.from(box.querySelectorAll('.work-turn .work')); }
     function title(card) { return card.querySelector('.whead').textContent; }
 
     const box = look(state(talk, CHAT));
-    const [first, second] = cards(box);
-    check(cards(box).length === 2, 'each answer needs its own card');
-    check(title(first).includes('Created files (3)') && title(second).includes('Thought for 12 seconds'),
-      'headings must describe their own answer');
-    check(first.querySelector('.wwords').textContent.includes('I will read the parser first.'),
-      'the progress message belongs in the first card');
+    check(box.querySelector('.work-turn')?.classList.contains('shut'),
+      'the main work block should start collapsed');
+    const [first, legacy, second] = cards(box);
+    check(cards(box).length === 3, 'each period of activity needs its own card');
+    check(title(first).includes('Thought for 4 seconds') && title(legacy).includes('Created files (3)')
+      && title(second).includes('Thought for 12 seconds'), 'headings must describe their own activity');
+    check(box.querySelector('.work-turn .answer-words').textContent === talk[1].body
+      && Array.from(box.querySelectorAll('.answer-words'), node => node.textContent)
+        .join('|') === [talk[1].body, talk[3].body, talk[5].body].join('|'),
+      'every assistant message must appear between cards');
     check(!box.textContent.includes('Read before touching.'), 'private thoughts are visible');
-    check(box.querySelectorAll('.answer-words').length === 2 &&
-      first.nextElementSibling.textContent === talk[3].body, 'final answers belong outside');
     check(Array.from(box.querySelectorAll('.work, .wblock')).every(n => n.classList.contains('shut')),
       'all disclosures should start closed');
 
-    const blocks = Array.from(first.querySelectorAll('.wblock'));
+    const blocks = Array.from(legacy.querySelectorAll('.wblock'));
     const command = blocks.find(n => n.firstElementChild.textContent.includes('Ran cargo test'));
     check(command.firstElementChild.querySelector('.wtoolmark path[d]'), 'legacy command lost its icon');
     const files = blocks.find(n => n.firstElementChild.textContent.includes('Created files (3)'));
@@ -128,26 +129,68 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     check(emptyLine.firstElementChild.tabIndex === -1, 'empty progress line should have no active control');
 
     const start = [said(40, 'You', 'Explain this briefly.')];
-    look(state(start, CHAT, { generating: true, reasoning: 'Private thought', live_work_head: 'Thinking' }));
+    const firstWords = 'I’ll check the 🧪 results.';
+    function phases() {
+      return Array.from(box.querySelectorAll(
+        '.work-turn .corp-work-run > .work, .work-turn .corp-work-run > .corporate-message, ' +
+        '.turn.t-ai > .corporate-message'));
+    }
+    look(state(start, CHAT, { generating: true, reasoning: 'Private thought', thought_offsets: [0] }));
     const active = cards(box)[0];
     check(title(active).includes('Thinking') && !active.textContent.includes('Private thought'),
       'thinking should keep a card without exposing thoughts');
-    look(state(start, CHAT, { generating: true, live: 'Still writing.', live_work_head: 'Thinking' }));
-    check(cards(box)[0] === active && active.querySelector('.wwords') && !box.querySelector('.answer-words'),
-      'streamed words should stay inside the same card');
-    look(state(start.concat(said(41, 'Assistant', 'Here is the **answer**.', { work_head: 'Done' })), CHAT));
-    check(cards(box)[0] === active && box.querySelector('.answer-words strong').textContent === 'answer'
-      && !active.querySelector('.wwords'), 'the completed answer must move out of its original card');
+    look(state(start, CHAT, { generating: true, live: firstWords, reasoning: 'Private thought',
+      reasoning_done: true, reasoning_ms: 1300, thought_offsets: [0] }));
+    const firstProse = phases()[1];
+    check(phases()[0] === active && firstProse.textContent === firstWords
+      && active.querySelector('.busy'), 'the streamed message should follow its activity card: '
+      + phases().map(node => node.classList.contains('work') ? title(node) : node.textContent).join('|'));
+
+    const offsets = [0, firstWords.length];
+    look(state(start, CHAT, { generating: true, live: firstWords, reasoning: 'Private thought again',
+      thought_offsets: offsets }));
+    const resumed = phases()[2];
+    check(phases()[0] === active && phases()[1] === firstProse && title(resumed).includes('Thinking'),
+      'resumed thinking must start a new card after the existing message');
+    const finalWords = 'Here is the **answer**.';
+    look(state(start, CHAT, { generating: true, live: firstWords + finalWords,
+      reasoning: 'Private thought again', reasoning_done: true, thought_offsets: offsets }));
+    const finalProse = phases()[3];
+    check(phases()[2] === resumed && finalProse.querySelector('strong').textContent === 'answer',
+      'the final response should stream outside the new card');
+    const saved = said(41, 'Assistant', firstWords + finalWords,
+      { reasoning: 'Private thought again', thought_offsets: offsets });
+    look(state(start.concat(saved), CHAT));
+    const savedFinal = phases()[3];
+    check(phases()[0] === active && phases()[1] === firstProse && phases()[2] === resumed
+      && savedFinal !== finalProse && savedFinal.querySelector('.answer-words').textContent
+        === 'Here is the answer.',
+      'saving the answer must preserve its work and move only the final words outside');
+    check(!box.textContent.includes('Private thought'), 'the saved answer exposed private reasoning');
+    const editButton = savedFinal.querySelector('button');
+    editButton.click();
+    check(savedFinal.querySelector('textarea').value === saved.body,
+      'editing should open the complete stored message');
+    savedFinal.querySelector('.answer-edit-acts button:last-child').click();
+    check(savedFinal.querySelector('.answer-words').textContent === 'Here is the answer.',
+      'closing the editor should restore the final answer');
+
+    look(state(start.concat(said(42, 'Assistant', 'No tools were needed.')), CHAT));
+    check(cards(box).length === 0 && box.querySelector('.answer-words').textContent === 'No tools were needed.',
+      'plain assistant text should not create an empty card');
 
     for (const previous of [said(51, 'Tool', 'Search result'), said(51, 'Assistant', 'Checking sources.',
       { work: SHORT, work_head: 'Searching the web' })]) {
       look(state([said(50, 'You', 'Research and report.'), previous, said(52, 'Summary', '')], CHAT,
         { generating: true, summarising: true, live: 'secret handoff text', reasoning: 'secret thought',
           live_work: SHORT, live_work_head: 'Searching the web' }));
-      check(cards(box).length === 1 && title(cards(box)[0]).includes('Searching the web'),
-        'handoff should retain the card above the summary');
-      check(!box.textContent.includes('secret') && !box.querySelector('.answer-words'),
-        'handoff exposed the summary stream or showed progress as a final answer');
+      check(cards(box).length === 1,
+        'handoff should retain the work card inside the turn');
+      check(!box.textContent.includes('secret'), 'handoff exposed the summary stream');
+      if (previous.role === 'Assistant') {
+        check(box.querySelector('.answer-words').textContent === previous.body,
+          'handoff hid the previous progress message');
+      }
     }
 
     const edit = call('edit_file', 'edit', 'Edited file parser.rs', { adds: 3, cuts: 1 });
@@ -163,7 +206,7 @@ const REMOTE = process.env.AN_PAGE_URL || (process.env.AN_PAGE
     look(state(talk, PLAIN));
     check(cards(box).length === 0 && box.querySelector('.think'), 'plain mode lost its thinking panel');
     look(state(talk, CHAT));
-    check(cards(box).length === 2 && !box.querySelector('.think'), 'switching back lost corporate cards');
+    check(cards(box).length === 3 && !box.querySelector('.think'), 'switching back lost corporate cards');
   });
   await browser.close();
   console.log('Corporate answers, legacy cards, handoff, mode switching and line counts passed');

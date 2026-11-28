@@ -256,6 +256,14 @@ pub struct Repo {
     pub path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerTarget {
+    #[default]
+    Desktop,
+    Workspace,
+}
+
 // Which of the tools of the program the model may reach in one chat. The badge of the tools is
 // the switch over all of them: with the badge off, none of these matters, for nothing is
 // proposed at all. Each line of the drop-down of the badge holds one of these switches, and the
@@ -265,6 +273,14 @@ pub struct Repo {
 // on, which is what such a chat was proposed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolSwitches {
+    // The model may browse pages through the program's web reader.
+    #[serde(default)]
+    pub browser_use: bool,
+    // The model may inspect and control the desktop after the user opts in.
+    #[serde(default)]
+    pub computer_use: bool,
+    #[serde(default)]
+    pub computer_target: ComputerTarget,
     // A command of the terminal tool may run.
     #[serde(default = "switch_on")]
     pub commands: bool,
@@ -319,6 +335,9 @@ fn switch_on() -> bool {
 impl Default for ToolSwitches {
     fn default() -> Self {
         ToolSwitches {
+            browser_use: false,
+            computer_use: false,
+            computer_target: ComputerTarget::Desktop,
             commands: true,
             files: true,
             picture: true,
@@ -339,6 +358,8 @@ impl ToolSwitches {
     // another type is answered with nothing done.
     pub fn set(&mut self, part: &str, on: bool) -> bool {
         match part {
+            "browser_use" => self.browser_use = on,
+            "computer_use" => self.computer_use = on,
             "commands" => self.commands = on,
             "files" => self.files = on,
             "picture" => self.picture = on,
@@ -373,6 +394,11 @@ impl ToolSwitches {
         ]
     }
 
+    // The switches shown under the Agentic badge are separate from the program-tool badge.
+    pub fn agentic_words(&self) -> Vec<(&'static str, bool)> {
+        vec![("browser_use", self.browser_use), ("computer_use", self.computer_use)]
+    }
+
     // Whether any line of the drop-down is on. With none of them on the badge of the tools has
     // nothing to let through, and so cannot be on.
     pub fn any_on(&self) -> bool {
@@ -393,6 +419,8 @@ impl ToolSwitches {
     // nothing switches off is proposed.
     pub fn value_of(&self, part: &str) -> bool {
         match part {
+            "browser_use" => self.browser_use,
+            "computer_use" => self.computer_use,
             "commands" => self.commands,
             "files" => self.files,
             "picture" => self.picture,
@@ -488,6 +516,20 @@ pub struct ChatMeta {
     // planned.
     #[serde(default)]
     pub plan_file: String,
+    // The goal this chat is pursuing. It survives restarts and handoff summaries until the
+    // model submits a passing completion report; it remains set while user input is awaited.
+    #[serde(default)]
+    pub goal: Option<String>,
+    // When this goal became active, used to show its elapsed time after the chat is reopened.
+    #[serde(default)]
+    pub goal_started: i64,
+    // Task-appropriate finish criteria registered before goal work; completion evidence must
+    // account for each one exactly once.
+    #[serde(default)]
+    pub goal_criteria: Vec<String>,
+    // A goal can pause only when a required user decision, permission, or fact blocks safe work.
+    #[serde(default)]
+    pub goal_paused: bool,
     // Tokens used by the last answer.
     pub context_used: u64,
 }
@@ -530,6 +572,10 @@ impl Default for ChatMeta {
             planning: false,
             planned: false,
             plan_file: String::new(),
+            goal: None,
+            goal_started: 0,
+            goal_criteria: Vec::new(),
+            goal_paused: false,
             context_used: 0,
         }
     }
@@ -576,6 +622,9 @@ pub struct Message {
     // chat was written before this was measured.
     #[serde(default)]
     pub reasoning_ms: u64,
+    // Where each reasoning phase began in the assistant's visible text, in UTF-16 units.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thought_offsets: Vec<usize>,
     // Tool name plus arguments, for a tool call. Empty for other messages.
     #[serde(default)]
     pub tool: String,

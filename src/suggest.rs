@@ -61,27 +61,26 @@ pub fn definition() -> Value {
         "function": {
             "name": NAME,
             "description": with_rule(String::from(
-                "Put up to three buttons at the end of your answer, each one a next step the user may take with a press. Use it when the work has come to a point where the user has a real choice of what to request next, and two or three suggestions follow from what you have just done. Each button carries a short label and the prompt it sends; the prompt is sent as a message from the user, so write it as the user would write it, and leave the prompt out when the label is all of it. Call this once, at the END of the answer, after the work and the text is done: the buttons appear only when the answer has stopped. Only your newest propose remains - a second call takes the first away. Never use it to ask a question, for that is what ask_user is for, and never use it when the answer already finished the work or when the user has nothing to choose: offering nothing is better than offering three items nobody wanted.",
+                "Offer up to three useful next-step buttons when the user has a real choice after your work. Each has a short label and an optional prompt written as the user's message. Call once at the end of your answer; a later call replaces it. Use `ask_user` for questions. Omit suggestions when the work is complete or there is no meaningful choice.",
             )),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "suggestions": {
                         "type": "array",
-                        "description": "Up to three next steps, in the order they should remain. A plain string is a button whose label is also its prompt.",
+                        "description": "Up to three next steps, ordered. A string serves as both label and prompt.",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {
-                                    "type": "string",
-                                    "description": "The short text on the button, such as 'Run the tests' or 'Show me the diff'."
-                                },
-                                "prompt": {
-                                    "type": "string",
-                                    "description": "The text sent when the user presses the button, written as the user would write it. Leave it out to send the label."
+                            "oneOf": [
+                                { "type": "string", "description": "Button label and prompt." },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": { "type": "string", "description": "Short button label." },
+                                        "prompt": { "type": "string", "description": "Optional user-message prompt; defaults to the label." }
+                                    },
+                                    "required": ["label"]
                                 }
-                            },
-                            "required": ["label"]
+                            ]
                         }
                     }
                 },

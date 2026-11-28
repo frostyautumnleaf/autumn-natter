@@ -451,6 +451,11 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             String::new(),
             named(search::partial_words(raw), "the web"),
         ),
+        crate::agentic::BROWSER_NAME | crate::agentic::COMPUTER_NAME => (
+            crate::agentic::live_words(name, raw),
+            String::new(),
+            String::new(),
+        ),
         // The tools of planning name themselves: one writes the whole plan, one changes the
         // plan file of this chat, one reads it back, and one reports the plan is agreed. The
         // text of the plan stream in the body.
@@ -478,6 +483,21 @@ fn words_of(name: &str, raw: &str) -> (String, String, String) {
             tools::live_arguments(raw),
             String::new(),
             String::from("the plan is agreed"),
+        ),
+        crate::goal::COMPLETE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("the active goal"),
+        ),
+        crate::goal::CRITERIA_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("acceptance criteria"),
+        ),
+        crate::goal::PAUSE_NAME => (
+            tools::live_arguments(raw),
+            String::new(),
+            String::from("essential user input"),
         ),
         // The handoff summary is named by the conversation it puts away. The reason the model
         // gives with the call rides beside it.
@@ -1036,8 +1056,8 @@ pub const CUT_TOLD_FIRST: &str = "[A tool call was cancelled";
 // requested an answer rather than for the call it would else write behind the result. Nothing
 // is added in any other case: the block of a summarisation is in the conversation already, and
 // a second copy of it would cost the space the summarisation was created to win.
-fn go_on_words(state: &State, carried: &str) -> Value {
-    let mut history = state.build_history();
+fn go_on_words(state: &State, chat: &str, carried: &str) -> Value {
+    let mut history = state.build_history_in(chat);
     if carried.trim().is_empty() {
         return history;
     }
@@ -1125,16 +1145,11 @@ pub fn colour_words() -> String {
     )
 }
 
-// The text that go before the model while the size of the context is created by a handoff
-// summary. A model that is never informed how the space is kept open reads a full context as
-// the end of its work: it compresses the part it was requested, leaves a part of it out, or
-// stops to ask leave for the next step, all because it counts the text it has left. This text
-// reports that there is nothing to count. They go in a message of the role `system` at the
-// header of the conversation, once for the conversation, and they go away when compaction
-// remains off.
+// General context guidance when compaction is enabled. A handoff is announced
+// separately, when a recorded summary is sent with the conversation.
 pub fn compaction_words() -> String {
     String::from(
-        "The context of this conversation stays open while you work. When the context window of the model fills, this program writes a handoff summary of the conversation, puts it in the place of the messages it replaced, and the work goes on in the context that is created. That may happen again and again, without end, and nothing of the work is lost by it: the files stay where you wrote them, and the summary carries the state of the work.\n\nYou therefore have no budget of context, no limit of time and no limit on the number of tool calls. Do not measure the work against the context you think you have. Never leave a part of the work out, never write a simpler version because the full version is large, and never stop to ask whether there is space for the next step: when space runs out, the program creates it. Work until the work is complete, one step at a time, and say nothing of the context or the summary in your answer.",
+        "The program manages the context window while you work. Do not shorten or leave out parts of the user's request based on the space you think remains. Work through the request one step at a time.",
     )
 }
 
@@ -1231,12 +1246,17 @@ pub struct Snap {
     // these chats, so the user sees where the model is at work while another chat is left open.
     pub working: Vec<String>,
     pub code_enabled: bool,
+    pub computer_use_available: bool,
     // True when the open chat is working in planning mode: the model plans the work and writes
     // it to its plan file, and does none of the work itself.
     pub planning: bool,
     // True when the open chat let a plan go. The heading over the conversation reports `PLANNED
     // WORK`, and the plan may be read from it.
     pub planned: bool,
+    // The current goal of this chat and the time it began, if there is one.
+    pub goal: Option<String>,
+    pub goal_started: i64,
+    pub goal_paused: bool,
     // Which of the tools of the program the model may reach in the open chat. The badge of the
     // tools is the switch over all of them; these are the lines of its drop-down.
     pub tool_switches: store::ToolSwitches,
@@ -1380,6 +1400,8 @@ pub struct Snap {
     pub live_text: String,
     // The model's reasoning, streamed while an answer arrives.
     pub live_reasoning: String,
+    // Positions of reasoning phases in the visible text, in UTF-16 units for the page.
+    pub live_thought_offsets: Vec<usize>,
     // How long the thinking of the answer taking form lasted, in milliseconds, and whether it
     // has stopped. The page writes these on the header of the panel.
     pub live_thought_ms: u64,
@@ -1454,6 +1476,8 @@ pub struct ChatLive {
     pub live_text: String,
     // The model's reasoning, streamed while an answer arrives.
     pub live_reasoning: String,
+    // Positions of reasoning phases in the visible text, in UTF-16 units for the page.
+    pub live_thought_offsets: Vec<usize>,
     // Whether the thinking that came with the live answer has stopped. The header of the panel
     // reports how long it took once it has.
     pub live_thought_done: bool,
@@ -1473,11 +1497,9 @@ pub struct ChatLive {
     // The calls of a tool the model is writing right now, in the order it writes them. The user
     // sees a command as it is written.
     pub live_tools: Vec<LiveTool>,
-    // Tool outcome blocks for the corporate display. Assistant narration is kept in message
-    // text and rendered as one sub-block per assistant message.
+    // Tool outcome blocks for the corporate display. Assistant narration is drawn in the chat.
     pub live_work: Vec<corporate::WorkBlock>,
-    // The header the one block of the corporate display is at right now: what the model is at,
-    // in the text of the item that is going on.
+    // The current heading of the work being gathered for the corporate display.
     pub live_work_head: String,
     // All of a plan the model let go, waiting to become the first message of the work. It
     // remains only between the call that let the plan go and the turn that begins the work,
@@ -1498,6 +1520,8 @@ pub struct ChatLive {
     // text the model had written out of the conversation again - and a meter that only climbs
     // would stay still for all of the answer that followed, for ever after.
     pub ctx_fresh: bool,
+    // A response used an excerpt of a tool result that would not fit in the prompt.
+    tool_result_shortened: bool,
     // The moment the text of an answer began to come. The program measures the speed of the
     // writing itself when the server reports nothing of speed, and it cannot do that without a
     // beginning to measure from.
@@ -1577,6 +1601,8 @@ pub struct State {
     pub status: String,
     pub ctx_total: u64,
     pub sandbox_available: bool,
+    // A remote page cannot control the computer of its viewer; computer use stays desktop-only.
+    pub computer_use_available: bool,
     pub sandbox_note: String,
     // What the chat template of the current model can do with thinking.
     pub thinking: markdown::ThinkingOptions,
@@ -1730,11 +1756,6 @@ impl State {
         self.busy = self.any_generating();
     }
 
-    // The live state of the chat the side bar has open, when one is open.
-    fn open_live(&self) -> Option<&ChatLive> {
-        self.live_of(self.current.as_deref().unwrap_or(""))
-    }
-
     // Reach the state of one chat with the fields of that chat in front. The entry of the chat
     // is prepared, so what follows always has something to work on.
     pub fn for_chat(&mut self, chat: &str) -> ChatScope<'_> {
@@ -1743,18 +1764,6 @@ impl State {
             state: self,
             chat: chat.to_string(),
         }
-    }
-
-    // Whether the chat named is being answered now.
-    fn chat_generating(&self, chat: &str) -> bool {
-        self.live_of(chat)
-            .map(|one| one.generating)
-            .unwrap_or(false)
-    }
-
-    // Whether the chat the side bar has open is being answered now.
-    fn open_generating(&self) -> bool {
-        self.chat_generating(self.current.as_deref().unwrap_or(""))
     }
 
     // Whether any chat at all is being answered, or is having its space made by a handoff
@@ -1819,6 +1828,7 @@ impl State {
     }
 
     // The waiting list of the chat that is left open, when it has one.
+    #[cfg(test)]
     fn open_queue(&self) -> Option<&WaitingList> {
         let chat = self.current.as_deref()?;
         self.queue_of(chat)
@@ -2151,6 +2161,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn last_answer(&self) -> Option<String> {
         self.last_answer_in(self.open_id().as_str())
     }
@@ -2189,6 +2200,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn answer_programmed(&mut self, body: &str) {
         let chat = self.open_id();
         self.answer_programmed_in(&chat, body);
@@ -2216,6 +2228,7 @@ impl State {
     // against this, so a chat that is where the one before it was requests the server that is
     // already up, and the model on it stays loaded. Nothing of the thinking, of the tools or of
     // the sandbox is here, for all three are stated with every ask.
+    #[cfg(test)]
     fn server_wants(&self) -> ServerWants {
         ServerWants {
             model_id: self.current_model_id(),
@@ -2408,6 +2421,19 @@ impl State {
         self.live_mut(chat_id).last_opened = stamp;
         self.chats[place].meta.opened = stamp;
         let snapshot = self.chats[place].clone();
+        // Older screenshot tools wrote their records beside the attachment folder.
+        let screenshot_ids: Vec<_> = snapshot
+            .messages
+            .iter()
+            .filter(|message| message.role == "Tool" && crate::agentic::is_tool(&message.tool_name))
+            .flat_map(|message| &message.attachments)
+            .filter(|attachment| attachment.image)
+            .map(|attachment| attachment.id.clone())
+            .collect();
+        if !screenshot_ids.is_empty() {
+            let workdir = self.workdir_for(&snapshot);
+            attach::move_from(&workdir, &attach::shelf(&workdir), &screenshot_ids);
+        }
         self.live_mut(chat_id).ctx_used = snapshot.meta.context_used;
         self.current = Some(snapshot.meta.id.clone());
         match self.store.save_chat(&snapshot) {
@@ -2533,6 +2559,7 @@ impl State {
     }
 
     // Add one message of a normal type to the open chat.
+    #[cfg(test)]
     fn push_message(
         &mut self,
         role: &str,
@@ -2596,7 +2623,11 @@ impl State {
         } else {
             String::new()
         };
-        // The page renders every assistant message in its own corporate card sub-block.
+        let thought_offsets = if role == "Assistant" {
+            std::mem::take(&mut self.live_mut(chat).live_thought_offsets)
+        } else {
+            Vec::new()
+        };
         if let Some(chat) = self.chat_of_mut(chat) {
             chat.messages.push(Message {
                 id: store::new_id(),
@@ -2604,6 +2635,7 @@ impl State {
                 body: body.to_string(),
                 reasoning: reasoning.to_string(),
                 reasoning_ms,
+                thought_offsets,
                 mono,
                 work,
                 work_head: head,
@@ -2620,23 +2652,35 @@ impl State {
     // two, so the new text go onto the message that is at the end of the conversation. False
     // means the message is no longer the last one of the conversation, and the text has to be
     // kept on its own.
-    fn append_resumed(&mut self, id: &str, body: &str, reasoning: &str, reasoning_ms: u64) -> bool {
-        // The work of this part of the answer joins the summary of the answer it was removed on
-        // from, so the one block of the corporate display holds all of the work and not only
-        // the last part of it.
-        let more = if self.corporate_on() {
-            let mut held = std::mem::take(&mut self.live_write().live_work);
+    fn append_resumed(
+        &mut self,
+        chat_id: &str,
+        id: &str,
+        body: &str,
+        reasoning: &str,
+        reasoning_ms: u64,
+    ) -> bool {
+        let matching = self.chat_of(chat_id).and_then(|chat| chat.messages.last())
+            .is_some_and(|last| last.id == id && last.role == "Assistant");
+        if !matching {
+            return false;
+        }
+        let joined = self.corporate_on_in(chat_id);
+        let live = self.live_mut(chat_id);
+        let offsets = std::mem::take(&mut live.live_thought_offsets);
+        let more = if joined {
+            let mut held = std::mem::take(&mut live.live_work);
             corporate::finish_reads(&mut held);
             held
         } else {
             Vec::new()
         };
-        let joined = self.corporate_on();
-        let Some(chat) = self.chat_mut() else { return false };
-        let Some(last) = chat.messages.last_mut() else { return false };
-        if last.id != id || last.role != "Assistant" {
-            return false;
+        let Some(last) = self.chat_of_mut(chat_id).and_then(|chat| chat.messages.last_mut())
+        else { return false };
+        if last.thought_offsets.is_empty() && (!last.reasoning.is_empty() || last.reasoning_ms > 0) {
+            last.thought_offsets.push(0);
         }
+        let previous = last.body.encode_utf16().count();
         last.body.push_str(body);
         if !reasoning.trim().is_empty() {
             if last.reasoning.trim().is_empty() {
@@ -2646,6 +2690,8 @@ impl State {
                 last.reasoning.push_str(reasoning);
             }
         }
+        last.thought_offsets
+            .extend(offsets.into_iter().map(|offset| previous + offset));
         last.reasoning_ms += reasoning_ms;
         last.when = store::now_secs();
         if !more.is_empty() {
@@ -2674,13 +2720,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn push_note(&mut self, text: &str, failed: bool) {
-        let chat = self.open_id();
-        self.push_note_in(&chat, text, failed);
-    }
-
     // The answer the user stopped is the one answer the page may go on with. The marker
     // therefore goes on the newest saying of the model, and off every older one: two answers
     // under a marker of going on read as an error, and an answer the user has written past is
@@ -2699,6 +2738,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn mark_last_answer_stopped(&mut self) {
         let chat = self.open_id();
         self.mark_last_answer_stopped_in(&chat);
@@ -2719,6 +2759,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn clear_stopped_marks(&mut self) {
         let chat = self.open_id();
         self.clear_stopped_marks_in(&chat);
@@ -2769,6 +2810,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn begin_summary(&mut self) -> String {
         let chat = self.open_id();
         self.begin_summary_in(&chat)
@@ -2810,6 +2852,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_summary(&mut self, id: &str, summary: &str, before: u64, after: u64, why: &str) {
         let chat = self.open_id();
         self.finish_summary_in(&chat, id, summary, before, after, why);
@@ -2894,6 +2937,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn handoffs(&self) -> Vec<Handoff> {
         self.handoffs_in(self.open_id().as_str())
     }
@@ -2941,6 +2985,7 @@ impl State {
     }
 
     // The same for the chat that is left open.
+    #[cfg(test)]
     fn begin_tool(
         &mut self,
         call: &ToolCall,
@@ -2959,12 +3004,6 @@ impl State {
         config::display_is_corporate(&self.cfg.chat_display)
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_on(&self) -> bool {
-        self.corporate_on_in(self.open_id().as_str())
-    }
-
     // True when the settings make the space of a conversation by a handoff summary. With
     // compaction off nothing is ever summarised: the text of the space go out no more, and
     // the tool that requests the space has nothing to request, so it is proposed nowhere
@@ -2980,8 +3019,7 @@ impl State {
         system_words_of(&self.cfg)
     }
 
-    // A call began: the one block reports what the model is at, and a block of the call is in
-    // the summary of the work.
+    // A call began: record its work and heading for the corporate display.
     fn corporate_begin_in(&mut self, chat_id: &str, call: &ToolCall, id: &str) {
         // The tool of the summary writes text, not a run: the heading it names is in the short,
         // and no block of a call means it. The tool that closes the block of the answer is
@@ -3012,13 +3050,6 @@ impl State {
         }
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_begin(&mut self, call: &ToolCall, id: &str) {
-        let chat = self.open_id();
-        self.corporate_begin_in(&chat, call, id);
-    }
-
     // A call returned: the header of its block is reported in the text of an item that
     // happened, what a call that changed a file did to it is with it, and the text that
     // returned is inside it, for the block of the call is hidden while the corporate display
@@ -3047,13 +3078,6 @@ impl State {
         self.live_mut(chat_id).live_work_head = head;
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn corporate_finish(&mut self, id: &str, output: &str, ok: bool) {
-        let chat = self.open_id();
-        self.corporate_finish_in(&chat, id, output, ok);
-    }
-
     // Write the output of a tool run into its message.
     fn finish_tool_in(&mut self, chat_id: &str, id: &str, output: &str, ok: bool) {
         self.finish_tool_with_in(chat_id, id, output, ok, Vec::new());
@@ -3061,6 +3085,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_tool(&mut self, id: &str, output: &str, ok: bool) {
         let chat = self.open_id();
         self.finish_tool_in(&chat, id, output, ok);
@@ -3092,13 +3117,6 @@ impl State {
         (id, seconds)
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn begin_asking(&mut self, asked: &askuser::Question) -> (String, u32) {
-        let chat = self.open_id();
-        self.begin_asking_in(&chat, asked)
-    }
-
     // A questionnaire of planning mode. It carries any number of questions, is waited for as
     // long as it takes, and is answered when the user sends all of it manually.
     fn begin_asking_plan_in(&mut self, chat_id: &str, items: Vec<AskItem>) -> String {
@@ -3119,13 +3137,6 @@ impl State {
         self.live_mut(chat_id).asking = Some(one);
         self.touch();
         id
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn begin_asking_plan(&mut self, items: Vec<AskItem>) -> String {
-        let chat = self.open_id();
-        self.begin_asking_plan_in(&chat, items)
     }
 
     // The answers of the user to a questionnaire, put in the text the model is given back. Each
@@ -3193,12 +3204,6 @@ impl State {
             .and_then(|one| one.answer.clone())
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn asking_answer_of(&self, id: &str) -> Option<String> {
-        self.asking_answer_of_in(self.open_id().as_str(), id)
-    }
-
     // Take the request away, for the question came to its end and the popup over the chat
     // composer has nothing left to say. A question of another run is skipped.
     fn clear_asking_in(&mut self, chat_id: &str, id: &str) {
@@ -3212,13 +3217,6 @@ impl State {
             self.live_mut(chat_id).asking = None;
             self.touch();
         }
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn clear_asking(&mut self, id: &str) {
-        let chat = self.open_id();
-        self.clear_asking_in(&chat, id);
     }
 
     // The same, with the files a run of the download tool proposed to the user. The proposal
@@ -3239,13 +3237,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_gifts(&mut self, id: &str, output: &str, ok: bool, gifts: Vec<download::Gift>) {
-        let chat = self.open_id();
-        self.finish_gifts_in(&chat, id, output, ok, gifts);
-    }
-
     // The same, with the files one run of the display tool put in the window. The show rides on
     // the message of the run, so the button of the block opens the same files again when the
     // chat is opened another day.
@@ -3261,13 +3252,6 @@ impl State {
         self.live_mut(chat_id).running = None;
         self.persist_in(chat_id);
         self.touch();
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_displayed(&mut self, id: &str, output: &str, ok: bool, displayed: Vec<display::Shown>) {
-        let chat = self.open_id();
-        self.finish_displayed_in(&chat, id, output, ok, displayed);
     }
 
     // The same, with the next steps one run of the suggestion tool proposed. The proposal rides
@@ -3298,13 +3282,6 @@ impl State {
         self.live_mut(chat_id).running = None;
         self.persist_in(chat_id);
         self.touch();
-    }
-
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_suggestions(&mut self, id: &str, output: &str, ok: bool, asks: Vec<crate::suggest::Suggestion>) {
-        let chat = self.open_id();
-        self.finish_suggestions_in(&chat, id, output, ok, asks);
     }
 
     // The same, with the steps of the work one run of the steps tool showed. The block rides on
@@ -3338,13 +3315,6 @@ impl State {
         self.touch();
     }
 
-    // The same work for the chat the side bar has open, which is what the window and the page
-    // request when they name no chat.
-    fn finish_steps(&mut self, id: &str, output: &str, ok: bool, plan: Option<crate::steps::Plan>) {
-        let chat = self.open_id();
-        self.finish_steps_in(&chat, id, output, ok, plan);
-    }
-
     // The same, with the records of the images the run opened hanging on the message as well. A
     // tool that pointers an image to the model keeps the bytes of it out of the text the user
     // is given, so the image is where the images of a chat remain: in the directory of the
@@ -3370,8 +3340,36 @@ impl State {
         self.touch();
     }
 
+    fn finish_screenshot_tool_in(
+        &mut self,
+        chat: &str,
+        id: &str,
+        report: tools::Report,
+        screenshot: Option<attach::Incoming>,
+    ) {
+        let Some(image) = screenshot else {
+            self.finish_tool_in(chat, id, &report.output, report.ok);
+            return;
+        };
+        let pictures = self
+            .attach_place_for_chat(chat)
+            .map(|place| attach::save_at(&place, &[image]))
+            .unwrap_or_default();
+        if pictures.is_empty() {
+            self.finish_tool_in(
+                chat,
+                id,
+                "The screenshot was captured but could not be saved as an attachment.",
+                false,
+            );
+            return;
+        }
+        self.finish_tool_with_in(chat, id, &report.output, report.ok, pictures);
+    }
+
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn finish_tool_with(&mut self, id: &str, output: &str, ok: bool, pictures: Vec<Attachment>) {
         let chat = self.open_id();
         self.finish_tool_with_in(&chat, id, output, ok, pictures);
@@ -3390,6 +3388,7 @@ impl State {
 
     // The same work for the chat the side bar has open, which is what the window and the page
     // request when they name no chat.
+    #[cfg(test)]
     fn begin_running(&mut self, id: &str, watch: &crate::util::Watch) {
         let chat = self.open_id();
         self.begin_running_in(&chat, id, watch);
@@ -3524,8 +3523,8 @@ impl State {
     // and a projector file remains next to the model for the server to take. The server gets
     // its `--mmproj` from the same two facts, so the answer here and the flags there cannot
     // drift apart.
-    fn pictures_can_go(&self) -> bool {
-        match self.model() {
+    fn pictures_can_go_in(&self, chat: &str) -> bool {
+        match self.model_of(chat) {
             Some(model) => {
                 self.cfg.model(&model.id()).vision && llama::find_mmproj(&model.path).is_some()
             }
@@ -3574,10 +3573,7 @@ impl State {
                 "content": colour_words(),
             }));
         }
-        // The text of the space the conversation is on, beside the text of the program. A
-        // chat whose space is created by a handoff summary has no ceiling the model has to work
-        // within, and a model that does not know that compresses its own work for a limit that
-        // is not there. The text go away when compaction remains off.
+        // While compaction is on, the program manages the context for the model.
         if self.compaction_on() {
             out.push(json!({
                 "role": "system",
@@ -3591,6 +3587,18 @@ impl State {
             out.push(json!({
                 "role": "system",
                 "content": planning::system_prompt(&chat.meta.plan_file),
+            }));
+        }
+        // An active goal is independent of the visible transcript, so this instruction is
+        // injected on every request. It survives the messages a handoff summary replaces.
+        if let Some(goal) = chat.meta.goal.as_deref() {
+            out.push(json!({
+                "role": "system",
+                "content": crate::goal::system_prompt(
+                    goal,
+                    &chat.meta.goal_criteria,
+                    chat.meta.goal_paused,
+                ),
             }));
         }
         // The text of the tasks suite, beside the text of the program. The eight tools are
@@ -3625,7 +3633,7 @@ impl State {
                 "content": self.rag_words_for(chat),
             }));
         }
-        let vision_on = self.pictures_can_go();
+        let vision_on = self.pictures_can_go_in(chat_id);
         // The records of the attachments of this chat are in a directory of its own space,
         // so that is where their text and images are searched for.
         let shelf = self.attach_place_for(chat);
@@ -4068,11 +4076,6 @@ impl State {
         Some(self.attach_place_for(one))
     }
 
-    // The directory of the records of the open chat, for an image a tool opened.
-    fn attach_place(&self) -> Option<PathBuf> {
-        self.chat().map(|chat| self.attach_place_for(chat))
-    }
-
     // The directory a tool of the open chat works in. The panel of the sources and the badge of
     // retrieval ask for it: the sources of a chat are the folder `.sources` of this directory.
     pub fn open_workdir(&self) -> Option<PathBuf> {
@@ -4172,6 +4175,9 @@ impl State {
             let Some(chat) = self.chat_of_mut(chat_id) else {
                 return false;
             };
+            if chat.meta.goal.is_some() {
+                return false;
+            }
             if chat.meta.planning && !chat.meta.plan_file.is_empty() {
                 return true;
             }
@@ -4192,6 +4198,30 @@ impl State {
                 }
             }
         }
+        true
+    }
+
+    // Start or resume a goal. The goal is part of the saved chat metadata, rather than a
+    // transcript convention, so compaction and reloading cannot accidentally finish it.
+    fn set_goal_in(&mut self, chat_id: &str, goal: Option<String>, paused: bool) -> bool {
+        let Some(chat) = self.chat_of_mut(chat_id) else {
+            return false;
+        };
+        if chat.meta.goal != goal {
+            chat.meta.goal_criteria.clear();
+            chat.meta.goal_started = if goal.is_some() {
+                store::now_secs()
+            } else {
+                0
+            };
+        } else if goal.is_some() && chat.meta.goal_started <= 0 {
+            chat.meta.goal_started = store::now_secs();
+        }
+        chat.meta.goal = goal;
+        chat.meta.goal_paused = paused;
+        chat.meta.updated = store::now_secs();
+        self.persist_in(chat_id);
+        self.touch();
         true
     }
 
@@ -4223,6 +4253,7 @@ impl State {
         }
         self.live_mut(chat_id).live_text.clear();
         self.live_mut(chat_id).live_reasoning.clear();
+        self.live_mut(chat_id).live_thought_offsets.clear();
         self.live_mut(chat_id).live_tools.clear();
         self.live_mut(chat_id).live_work.clear();
         self.live_mut(chat_id).live_work_head.clear();
@@ -4290,10 +4321,27 @@ impl State {
         } else {
             0
         };
+        let mut tool_switches = chat
+            .map(|c| c.meta.tools.clone())
+            .unwrap_or_else(|| self.new_tools.clone());
+        if !self.computer_use_available {
+            tool_switches.computer_use = false;
+        }
         Snap {
             model_name: model.as_ref().map(|m| m.name.clone()).unwrap_or_default(),
             planning: chat.map(|c| c.meta.planning).unwrap_or(false),
             planned: chat.map(|c| c.meta.planned).unwrap_or(false),
+            goal: chat.and_then(|c| c.meta.goal.clone()),
+            goal_started: chat
+                .map(|c| {
+                    if c.meta.goal.is_some() && c.meta.goal_started <= 0 {
+                        c.meta.updated
+                    } else {
+                        c.meta.goal_started
+                    }
+                })
+                .unwrap_or(0),
+            goal_paused: chat.is_some_and(|c| c.meta.goal_paused),
             model_kind: model
                 .as_ref()
                 .map(|m| m.kind.to_string())
@@ -4313,9 +4361,8 @@ impl State {
             busy: self.busy,
             model_loaded: self.model_loaded,
             code_enabled: chat.map(|c| c.meta.code_enabled).unwrap_or(self.new_code),
-            tool_switches: chat
-                .map(|c| c.meta.tools.clone())
-                .unwrap_or_else(|| self.new_tools.clone()),
+            computer_use_available: self.computer_use_available,
+            tool_switches,
             search_enabled: chat
                 .map(|c| c.meta.search_enabled)
                 .unwrap_or(self.new_search),
@@ -4401,6 +4448,7 @@ impl State {
                 .unwrap_or_default(),
             live_text: self.live().live_text.clone(),
             live_reasoning: self.live().live_reasoning.clone(),
+            live_thought_offsets: self.live().live_thought_offsets.clone(),
             live_thought_ms: self.live().live_thought_ms,
             live_thought_done: self.live().live_thought_done,
             progress: self.live().progress,
@@ -4693,6 +4741,7 @@ impl Engine {
             status: String::from("Ready"),
             ctx_total: 0,
             sandbox_available,
+            computer_use_available: true,
             sandbox_note,
             thinking: markdown::ThinkingOptions::default(),
             rev: 0,
@@ -4785,6 +4834,131 @@ impl Engine {
         let _ = self.jobs.send(Job::Prompt { chat, sent });
     }
 
+    // Clear the active goal and stop the current turn if it is still running.
+    pub fn clear_goal(&self) -> bool {
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.goal.is_some()) {
+                state.set_status("There is no active goal to clear");
+                return false;
+            }
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, None, false);
+            state.set_status("The active goal was cleared");
+            (chat, generating)
+        };
+        if generating {
+            self.cancel_chat(&chat);
+        }
+        true
+    }
+
+    // Replace the active objective, reset its criteria and clock, and continue from the new
+    // objective. A running turn is stopped and the continuation waits in that chat's queue.
+    pub fn edit_goal(&self, objective: &str) -> Result<(), String> {
+        let objective = objective.trim();
+        if objective.is_empty() {
+            return Err(String::from("Write the goal you want pursued"));
+        }
+        if objective.chars().count() > 10_000 {
+            return Err(String::from("Keep a goal under 10,000 characters"));
+        }
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return Err(String::from("The program is busy"));
+            };
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.goal.is_some()) {
+                return Err(String::from("There is no active goal to edit"));
+            }
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, Some(objective.to_string()), false);
+            state.set_status("The goal was updated and is continuing");
+            (chat, generating)
+        };
+        if generating {
+            self.cancel_chat(&chat);
+        }
+        self.continue_goal_in(&chat, generating);
+        Ok(())
+    }
+
+    // Pause or resume the current goal. Resuming asks the same persistent goal to continue; if
+    // a cancelled turn has not unwound yet, that request is queued behind it.
+    pub fn set_goal_paused(&self, paused: bool) -> bool {
+        let (chat, generating) = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let chat = state.open_id();
+            let Some(goal) = state.chat_of(&chat).and_then(|one| one.meta.goal.clone()) else {
+                state.set_status("There is no active goal");
+                return false;
+            };
+            let generating = state.live_ref(&chat).generating;
+            state.set_goal_in(&chat, Some(goal), paused);
+            state.set_status(if paused {
+                "The goal was paused"
+            } else {
+                "The goal is resuming"
+            });
+            (chat, generating)
+        };
+        if paused {
+            if generating {
+                self.cancel_chat(&chat);
+            }
+        } else {
+            self.continue_goal_in(&chat, generating);
+        }
+        true
+    }
+
+    // Continue a goal in the named chat. This is also used after an edit; it does not depend on
+    // which chat happens to be open when the worker takes the request.
+    fn continue_goal_in(&self, chat: &str, generating: bool) {
+        if generating {
+            if let Ok(mut state) = self.state.lock() {
+                if let Some(list) = state.queue_mut(chat) {
+                    list.seq += 1;
+                    let id = list.seq;
+                    list.items.insert(0, QueueItem {
+                        id,
+                        text: String::from("/goal"),
+                        files: Vec::new(),
+                        matches: String::new(),
+                        ready: false,
+                    });
+                    list.held = false;
+                    state.touch();
+                }
+            }
+            return;
+        }
+        let sent = {
+            let Ok(mut state) = self.state.lock() else {
+                return;
+            };
+            let Some(sent) = Self::prepare_message_in(
+                &mut state,
+                chat,
+                String::from("/goal"),
+                Vec::new(),
+            ) else {
+                return;
+            };
+            state.queue_restart();
+            sent
+        };
+        let _ = self.jobs.send(Job::Prompt {
+            chat: chat.to_string(),
+            sent,
+        });
+    }
+
     // Ready a message of the chat composer for the worker, and say upon the status line what is
     // in its way. The commands of the chat composer are taken off the start of the text, a chat
     // that owes a handoff summary is answered where it is, and a chat with no model or no
@@ -4852,14 +5026,19 @@ impl Engine {
             let opened = state.open_id();
             return Self::prepare_message_in(state, &opened, text, files);
         }
-        // The commands of the chat composer. `/plan` turns planning mode on for this chat and
-        // makes its plan file; the text behind it are the request the plan is to be made of,
-        // and they go on as a message of their own. A command with nothing behind it turns the
-        // mode on and asks nothing of the model, so the user may look at the plan file or write
-        // the request next.
+        // The commands of the chat composer. `/plan` turns planning mode on; `/goal` starts or
+        // resumes persistent work. They cannot overlap, because planning mode forbids execution.
         let (command, rest) = planning::split(&text);
+        let mut goal_change = None;
         let text = match command {
             Some(planning::Command::Plan) => {
+                if state
+                    .chat_of(chat)
+                    .is_some_and(|one| one.meta.goal.is_some())
+                {
+                    state.set_status("Complete or replace the active goal before starting planning mode");
+                    return None;
+                }
                 if state.start_planning_in(chat) {
                     state.set_status(
                         "Planning mode is on. The plan of this chat is kept in the chats database",
@@ -4873,7 +5052,37 @@ impl Engine {
                 }
                 rest
             }
+            Some(planning::Command::Goal) => {
+                if state.planning_open_in(chat) {
+                    state.set_status("Release or leave planning mode before starting a goal");
+                    return None;
+                }
+                let objective = rest.trim();
+                if objective.is_empty() {
+                    let Some(active) = state
+                        .chat_of(chat)
+                        .and_then(|one| one.meta.goal.clone())
+                    else {
+                        state.set_status("Write /goal followed by the goal you want completed");
+                        return None;
+                    };
+                    goal_change = Some(active.clone());
+                    format!("Continue pursuing the active goal: {active}")
+                } else {
+                    let objective = objective.to_string();
+                    goal_change = Some(objective.clone());
+                    objective
+                }
+            }
             None => text,
+        };
+        // A reply to a paused goal supplies the missing input and resumes its work.
+        let resume_goal = if command.is_none() {
+            state
+                .chat_of(chat)
+                .is_some_and(|one| one.meta.goal_paused)
+        } else {
+            false
         };
         // A chat that was cut for a handoff summary and never got one is at the place it was
         // cut: its conversation is past the context window of the model and cannot be sent as
@@ -4894,6 +5103,15 @@ impl Engine {
         if state.server_binary().is_none() {
             state.set_status("llama-server was not found. Set its directory in the settings");
             return None;
+        }
+        if let Some(goal) = goal_change {
+            state.set_goal_in(chat, Some(goal), false);
+            state.set_status("A goal is active and will continue until verified complete");
+        } else if resume_goal {
+            if let Some(active) = state.chat_of(chat).and_then(|one| one.meta.goal.clone()) {
+                state.set_goal_in(chat, Some(active), false);
+                state.set_status("The active goal is resumed");
+            }
         }
         Some(SentMessage { text, files, queued: None })
     }
@@ -5171,6 +5389,124 @@ impl Engine {
         });
     }
 
+    // Keep the browser panel and the model's per-chat tab in step when the user picks a tab.
+    pub fn select_browser_tab(&self, tab: u64) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        let chat = state.open_id();
+        if !crate::agentic::select_browser_tab(&chat, tab) {
+            return false;
+        }
+        state.touch();
+        true
+    }
+
+    pub fn open_browser_page(&self, url: &str, new_tab: bool) -> Result<(), String> {
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            let enabled = state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use);
+            if !enabled {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let made = crate::agentic::open_browser_url(&chat, url, new_tab);
+        if !made.ok {
+            return Err(made.output);
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.touch();
+        }
+        Ok(())
+    }
+
+    pub fn move_browser_history(&self, action: &str) -> Result<(), String> {
+        if !matches!(action, "back" | "forward" | "reload") {
+            return Err(String::from("Choose back, forward, or reload."));
+        }
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let watch = crate::util::Watch::unbounded();
+        let made = crate::agentic::browser_run(&serde_json::json!({"action": action}).to_string(), &chat, std::path::Path::new("."), &watch, false);
+        if !made.ok { return Err(made.output); }
+        if let Ok(mut state) = self.state.lock() { state.touch(); }
+        Ok(())
+    }
+
+    pub fn close_browser_tab(&self, tab: u64) -> Result<(), String> {
+        let chat = {
+            let state = self.state.lock().map_err(|_| String::from("The chat state is busy."))?;
+            let chat = state.open_id();
+            if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+                return Err(String::from("Turn on Browser use in the tools menu first."));
+            }
+            chat
+        };
+        let made = crate::agentic::browser_run(
+            &serde_json::json!({"action":"close_tab","tab":tab}).to_string(),
+            &chat,
+            std::path::Path::new("."),
+            &crate::util::Watch::unbounded(),
+            false,
+        );
+        if !made.ok { return Err(made.output); }
+        if let Ok(mut state) = self.state.lock() { state.touch(); }
+        Ok(())
+    }
+
+    pub fn browser_page(&self, tab: u64) -> Option<(String, String)> {
+        let state = self.state.lock().ok()?;
+        let chat = state.open_id();
+        if !state.chat_of(&chat).is_some_and(|one| one.meta.tools.browser_use) {
+            return None;
+        }
+        drop(state);
+        crate::agentic::browser_page(&chat, tab)
+    }
+
+    pub fn note_browser_navigation(&self, chat: &str, tab: u64, url: &str) -> Result<(), String> {
+        if crate::agentic::note_browser_navigation(chat, tab, url)? {
+            if let Ok(mut state) = self.state.lock() {
+                state.touch();
+            }
+        }
+        Ok(())
+    }
+
+    pub fn note_browser_title(&self, chat: &str, tab: u64, title: &str) {
+        if crate::agentic::note_browser_title(chat, tab, title) {
+            if let Ok(mut state) = self.state.lock() {
+                state.touch();
+            }
+        }
+    }
+
+    pub fn note_browser_new_tab(&self, chat: &str, url: &str) -> Result<(), String> {
+        crate::agentic::note_browser_new_tab(chat, url)?;
+        if let Ok(mut state) = self.state.lock() {
+            state.touch();
+        }
+        Ok(())
+    }
+
+    pub fn resolve_browser_action(&self, id: &str, result: serde_json::Value) -> bool {
+        let Ok(mut state) = self.state.lock() else { return false; };
+        let chat = state.open_id();
+        if !crate::agentic::resolve_browser_action(&chat, id, result) {
+            return false;
+        }
+        state.touch();
+        true
+    }
+
     // One line of the drop-down of the badge of the tools. The badge itself is the switch over
     // all of them, so a tool that is switched on here is proposed only while the badge is on;
     // turning this line off takes the tool out of the chat even when the badge is on. The same
@@ -5179,6 +5515,40 @@ impl Engine {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if part == "computer_use" && on && !state.computer_use_available {
+            state.set_status("Computer use is available only in the desktop app");
+            return;
+        }
+        if matches!(part, "browser_use" | "computer_use") {
+            let active_chat = state.chat().map(|chat| chat.meta.id.clone());
+            if let Some(chat) = state.chat_mut() {
+                if !chat.meta.tools.set(part, on) {
+                    return;
+                }
+            }
+            if !state.new_tools.set(part, on) {
+                return;
+            }
+            if part == "computer_use" && !on {
+                if let Some(chat) = active_chat.as_deref() {
+                    Self::stop_computer_use(&state, chat);
+                    crate::agentic::close_computer_workspace(chat);
+                }
+            }
+            state.persist_async();
+            state.set_status(if on {
+                if part == "computer_use" {
+                    "Computer use is enabled for this chat"
+                } else {
+                    "Browser use is enabled for this chat"
+                }
+            } else if part == "computer_use" {
+                "Computer use is off"
+            } else {
+                "Browser use is off"
+            });
+            return;
+        }
         // The line of the handoff summary counts toward the badge of the tools only while the
         // settings make the size of the context by a summary, for with compaction off nothing
         // is behind that line.
@@ -5207,6 +5577,47 @@ impl Engine {
             format!("{} are off", word)
         };
         state.set_status(&words);
+    }
+
+    pub fn set_computer_target(&self, target: store::ComputerTarget) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if !state.computer_use_available
+            || (target == store::ComputerTarget::Workspace && !cfg!(target_os = "linux"))
+        {
+            return false;
+        }
+        if let Some(chat) = state.chat() {
+            if chat.meta.tools.computer_target != target {
+                let id = chat.meta.id.clone();
+                Self::stop_computer_use(&state, &id);
+                crate::agentic::clear_computer_screenshot(&id);
+                if let Some(chat) = state.chat_mut() {
+                    chat.meta.tools.computer_target = target;
+                }
+            }
+        }
+        state.new_tools.computer_target = target;
+        state.persist_async();
+        state.set_status(match target {
+            store::ComputerTarget::Desktop => "Computer use will use the real desktop",
+            store::ComputerTarget::Workspace => "Computer use will use a private workspace",
+        });
+        true
+    }
+
+    fn stop_computer_use(state: &State, chat: &str) {
+        if let Some(running) = state.live_of(chat).and_then(|live| live.running.as_ref()) {
+            let is_computer = state.chat_of(chat).is_some_and(|one| {
+                one.messages.iter().any(|message| {
+                    message.id == running.id && message.tool_name == crate::agentic::COMPUTER_NAME
+                })
+            });
+            if is_computer {
+                running.watch.stop_now();
+            }
+        }
     }
 
     // The web search of the open chat. It is on a switch of its own and not behind the badge of
@@ -6108,6 +6519,7 @@ impl Engine {
             );
             return;
         }
+        crate::agentic::close_computer_workspace(&id);
         state.store.delete_chat(&chat.meta.repo_id, &id);
         // The waiting list of the chat goes with it: the messages of a chat that is removed
         // have no answer left to wait for.
@@ -6288,7 +6700,12 @@ impl Engine {
             return;
         }
         if let Some(chat) = state.chat_mut() {
-            chat.messages[index].body = words;
+            let message = &mut chat.messages[index];
+            if message.body != words {
+                // The editor replaces the whole message. Its old split points no longer apply.
+                message.thought_offsets.clear();
+                message.body = words;
+            }
             chat.meta.updated = store::now_secs();
         }
         state.persist();
@@ -6893,11 +7310,26 @@ impl Engine {
                 flag.store(true, Ordering::SeqCst);
             }
         }
+        #[cfg(target_os = "linux")]
+        {
+            crate::agent_pointer::close();
+            crate::wayland_workspace::close_all();
+        }
         // The server of the embeddings is a child of this process, as the server of the answers
         // is, so it is stopped here as well: a model left running after the program went would
         // hold memory of the computer for nothing.
         embed::stop();
         let _ = self.jobs.send(Job::Shutdown);
+    }
+
+    // Remote pages run on another computer and cannot drive the desktop that hosts this
+    // process. Keep the tool disabled there even when a chat was saved with it enabled.
+    pub fn set_computer_use_available(&mut self, available: bool) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.computer_use_available = available;
+        state.touch();
     }
 }
 
@@ -6921,6 +7353,7 @@ impl Snap {
             busy: false,
             model_loaded: false,
             code_enabled: false,
+            computer_use_available: false,
             tool_switches: store::ToolSwitches::default(),
             search_enabled: false,
             rag: RagSnap::default(),
@@ -6982,6 +7415,7 @@ impl Snap {
             chat_timeline: true,
             live_text: String::new(),
             live_reasoning: String::new(),
+            live_thought_offsets: Vec::new(),
             live_thought_ms: 0,
             live_thought_done: false,
             progress: 0,
@@ -6994,6 +7428,9 @@ impl Snap {
             live_work_head: String::new(),
             planning: false,
             planned: false,
+            goal: None,
+            goal_started: 0,
+            goal_paused: false,
             ask: None,
             running: None,
             queue: None,
@@ -7033,11 +7470,33 @@ fn run_send(
         // whatever the answer came to, for a chat left past the limit is only stopped again on
         // the next message.
         let made_room = maybe_compact(state, server, cancel, Weigh::Talk, chat);
+        let (active_goal, goal_paused) = goal_state(state, chat);
+        if goal_paused {
+            if let Ok(mut guard) = state.lock() {
+                guard.set_status("Goal paused for your input. Reply to the model or send /goal to resume");
+            }
+            break;
+        }
         // A summary the program requested is written so that the work goes on, and so it does:
         // the model is put back to its conversation with the first prompt of the user and the
         // summary in front of it, and none of the text the summary means. An answer the user
         // stopped, or one the stream broke, is not continued.
-        if !made_room || ended != Ended::Done || goings_on >= CONTINUE_ROOF || cancel.load(Ordering::Relaxed) {
+        if ended != Ended::Done || cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        // An active goal turns each otherwise-final model answer into another work round. The
+        // completion tool clears it; a handoff summary does not. The ordinary compaction-only
+        // continuation remains capped, as before.
+        if goal_should_continue(
+            &ended,
+            active_goal.is_some(),
+            goal_paused,
+            cancel.load(Ordering::Relaxed),
+        ) {
+            turn = Turn::Continue;
+            continue;
+        }
+        if !made_room || goings_on >= CONTINUE_ROOF {
             break;
         }
         goings_on += 1;
@@ -7069,6 +7528,23 @@ fn run_send(
     // an end. A message whose text the model has just written is sent with the next turn of the
     // chat, ahead of the messages that were only put in the list.
     note_answer(state, chat);
+}
+
+// The durable goal state of the chat, read after each model round and compaction.
+fn goal_state(state: &Arc<Mutex<State>>, chat: &str) -> (Option<String>, bool) {
+    state
+        .lock()
+        .ok()
+        .and_then(|guard| {
+            guard
+                .chat_of(chat)
+                .map(|one| (one.meta.goal.clone(), one.meta.goal_paused))
+        })
+        .unwrap_or_default()
+}
+
+fn goal_should_continue(ended: &Ended, active: bool, paused: bool, cancelled: bool) -> bool {
+    *ended == Ended::Done && active && !paused && !cancelled
 }
 
 // The next message of the waiting list of the chat that is left open, ready to be sent, or
@@ -8174,7 +8650,7 @@ fn ask_summary_for_handoff(
     // The wait of the ask is read once for the whole of the summary, the cancelled calls and
     // all, so that a server that has stopped answering is come back from at a stated time.
     let wait = summary_ask_wait();
-    let mut shot = ask_summary(state, base_url, &body, cancel, chat, wait);
+    let mut shot = ask_summary(state, base_url, &mut body, cancel, chat, wait);
     // The text a model wrote before it stopped to call a tool is part of the summary it was asked
     // for, so the pieces are kept in the order they came and joined when the writing ends. A model
     // that wrote half a summary, called a tool, and wrote the rest has said the whole of what it
@@ -8218,7 +8694,7 @@ fn ask_summary_for_handoff(
         }
         // What the model gives after a cancelled call is the rest of the summary. The text of the
         // request that was cancelled remains with it above, so nothing is reported twice.
-        shot = ask_summary(state, base_url, &body, cancel, chat, wait);
+        shot = ask_summary(state, base_url, &mut body, cancel, chat, wait);
     }
     if !shot.text.trim().is_empty() {
         pieces.push(shot.text.trim().to_string());
@@ -8314,6 +8790,9 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         switches,
         mcp_tools,
         compaction_on,
+        goal_on,
+        computer_vision,
+        computer_use_available,
     ) = {
         let Ok(guard) = state.lock() else { return None };
         let held = guard.chat_of(chat);
@@ -8327,9 +8806,16 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
             held.as_ref().map(|c| c.meta.tools.clone()).unwrap_or_default(),
             guard.mcp_definitions(),
             guard.compaction_on(),
+            held.as_ref().is_some_and(|c| c.meta.goal.is_some()),
+            guard.pictures_can_go_in(chat),
+            guard.computer_use_available,
         )
     };
-    offered_with_planning(
+    let mut switches = switches;
+    if !computer_vision || !computer_use_available {
+        switches.computer_use = false;
+    }
+    offered_with_goal(
         sandbox_on,
         planning_on,
         code_on,
@@ -8339,10 +8825,12 @@ fn summary_tools(state: &Arc<Mutex<State>>, chat: &str) -> Option<Value> {
         &mcp_tools,
         &switches,
         compaction_on,
+        goal_on,
     )
 }
 
 // One ask of the server for a handoff summary, and what came of it.
+#[derive(Default)]
 struct SummaryShot {
     // The text of the answer as it arrived, before the envelope was taken off.
     text: String,
@@ -8429,10 +8917,24 @@ const LEAST_SUMMARY_ROOM: u64 = 64;
 fn ask_summary(
     state: &Arc<Mutex<State>>,
     base_url: &str,
-    body: &Value,
+    body: &mut Value,
     cancel: &Arc<AtomicBool>,
     chat: &str,
     wait: Duration) -> SummaryShot {
+    let total = state.lock().map(|guard| guard.ctx_total).unwrap_or(0);
+    if total != 0 {
+        // Include the handoff prompt and tool schemas in the count. Keep enough context
+        // for the summary itself, including when a cancelled call is added to this request.
+        let limit = total.saturating_sub(RESULT_HANDOFF_RESERVE);
+        if fit_tool_results(body, limit, None, Some(base_url), cancel) == Some(ResultFit::TooLarge)
+        {
+            return SummaryShot {
+                error: Some(String::from("The conversation and handoff prompt cannot fit in the model context window")),
+                stopped: cancel.load(Ordering::Relaxed),
+                ..SummaryShot::default()
+            };
+        }
+    }
     {
         let Ok(mut guard) = state.lock() else {
             return SummaryShot {
@@ -8705,39 +9207,29 @@ fn fold_text(text: &str, keep: usize) -> Option<String> {
 // the whole of one. Nothing is said of what the model is to do about it, and the call is not
 // reported as cancelled, for the tool ran and what it printed stands in the chat as far as the
 // space let it in.
-pub const RESULT_TELL_HEAD: &str = "[ The whole of the result of this call is not here. The \
-                                     conversation had reached the limit set for the \
-                                     summarisation, and the result was bigger than the space left \
-                                     for it, so the middle of it was taken out and the start and \
-                                     the end were kept. ";
+pub const RESULT_TELL_HEAD: &str = "[ The whole of the result of this call is not here. ";
 pub const RESULT_TELL_TAIL: &str = " characters of it are left out. ]";
 
-// The cut of a tool result: the start of it, the saying of what is not there, and the end of it.
-// The room is shared even between the two ends, for what a command printed at its end -- the line
-// it failed on, the count it came to -- is the part a model most wants, beside the line it began
-// with. The whole of the result, the saying with it, is `keep` characters or less. Nothing is
-// given back when there is nothing worth taking out, or when the room would leave nothing of the
-// result between the two ends of the saying.
-fn cut_middle(text: &str, keep: usize) -> Option<String> {
-    let count = text.chars().count();
-    let saying = RESULT_TELL_HEAD.chars().count() + RESULT_TELL_TAIL.chars().count() + 24;
-    if count <= keep.saturating_add(LEAST_FOLD_SAVED) || keep <= saying + LEAST_KEPT_OF_A_FOLD {
-        return None;
+// Reserve space for the notice before splitting the remaining bytes between the two ends.
+const RESULT_NOTICE_BYTES: usize = RESULT_TELL_HEAD.len() + RESULT_TELL_TAIL.len() + 24;
+
+fn cut_middle(text: &str, chars: usize, bytes: usize) -> String {
+    if text.len() <= bytes {
+        return text.to_owned();
     }
-    let room = keep - saying;
-    let head = room / 2;
-    let tail = room - head;
-    let begun: String = text.chars().take(head).collect();
-    let ended: String = text.chars().skip(count.saturating_sub(tail)).collect();
-    let left = count.saturating_sub(room);
-    Some(format!(
-        "{}{}{}{}{}",
-        begun,
-        RESULT_TELL_HEAD,
-        left,
-        RESULT_TELL_TAIL,
-        ended
-    ))
+    let room = bytes.saturating_sub(RESULT_NOTICE_BYTES);
+    let head = (0..=room / 2)
+        .rev()
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or(0);
+    let tail_start = text.len() - (room - room / 2);
+    let tail = (tail_start..=text.len())
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or(text.len());
+    let start = &text[..head];
+    let end = &text[tail..];
+    let omitted = chars - start.chars().count() - end.chars().count();
+    format!("{start}{RESULT_TELL_HEAD}{omitted}{RESULT_TELL_TAIL}{end}")
 }
 
 // The characters of the text of one message of a conversation: what it says, and the thinking
@@ -9164,17 +9656,24 @@ fn run_handoff(
         let Ok(mut guard) = state.lock() else {
             return false;
         };
-        let Some(model) = guard.model_of(chat).clone() else {
-            abandon_turn(&mut guard, chat);
-            guard.set_status("Choose a model in the top bar first");
-            return false;
-        };
         if guard.chat_of(chat).is_none() {
             abandon_turn(&mut guard, chat);
             return false;
         }
-        let prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
-        let short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
+        let mut prompt = config::sanitize_handoff_prompt(&guard.cfg.chat_compact_prompt);
+        let mut short = config::sanitize_handoff_prompt_short(&guard.cfg.chat_compact_prompt_short);
+        if let Some(active) = guard.chat_of(chat).and_then(|one| {
+            one.meta.goal.as_ref().map(|goal| {
+                (
+                    goal.clone(),
+                    one.meta.goal_criteria.clone(),
+                    one.meta.goal_paused,
+                )
+            })
+        }) {
+            prompt = crate::goal::handoff_prompt(&prompt, &active.0, &active.1, active.2);
+            short = crate::goal::handoff_prompt(&short, &active.0, &active.1, active.2);
+        }
         let before = guard.live_ref(chat).ctx_used;
         // The conversation as it is now is what the summary is written of. `build_history`
         // already leaves out the text that the newest written summary means, and it sends no
@@ -9182,6 +9681,24 @@ fn run_handoff(
         // the summary, and the text that remains after the newest written marker: all of what
         // there is to summarise now, and no summary of a summary.
         let history = guard.build_history_in(chat);
+        // The first prompt stays in the context. Compaction cannot free space
+        // until there is another message to replace.
+        if !guard.handoff_owed_in(chat)
+            && history.as_array().is_none_or(|items| {
+                items
+                    .iter()
+                    .filter(|item| item["role"] != "system")
+                    .nth(1)
+                    .is_none()
+            })
+        {
+            return false;
+        }
+        let Some(model) = guard.model_of(chat).clone() else {
+            abandon_turn(&mut guard, chat);
+            guard.set_status("Choose a model in the top bar first");
+            return false;
+        };
         guard.live_mut(chat).generating = true;
         guard.busy = true;
         // The text of the summary is written of sight of the user.
@@ -9190,6 +9707,7 @@ fn run_handoff(
         // of the summarisation.
         guard.live_mut(chat).live_text = String::new();
         guard.live_mut(chat).live_reasoning = String::new();
+        guard.live_mut(chat).live_thought_offsets.clear();
         guard.live_mut(chat).live_tools = Vec::new();
         // Keep the work tree and its heading: a tool-only step may not have a stored Assistant
         // message yet, and the page uses this state to keep its progress card visible during
@@ -9278,6 +9796,14 @@ fn run_handoff(
         .map(|guard| guard.ctx_total)
         .unwrap_or_default();
     let budget = summary_budget(room);
+    // A handoff starts from the transcript, which can contain a much larger tool result
+    // than any model-facing request. Bound that result before considering older messages.
+    let mut bounded = json!({});
+    bounded["messages"] = history;
+    if estimate_tokens(&bounded["messages"]) > budget {
+        fit_tool_results(&mut bounded, budget, None, Some(&base_url), cancel);
+    }
+    let history = std::mem::take(&mut bounded["messages"]);
     let (history, before_fold, parts, cut_by_hand) =
         fold_history_for_handoff(state, &base_url, &history, slot, cancel, chat, budget);
     if parts > 0 || cut_by_hand > 0 {
@@ -9463,6 +9989,7 @@ fn run_handoff(
     }
     guard.summary_short(&id, asked_short);
     guard.finish_summary_in(chat, &id, &summary, before, after, &why);
+    guard.live_mut(chat).tool_result_shortened = false;
     // What stands before the marker is now what this summary represents. Only the text written
     // after it is conversation the next request carries, and only that text can ask for another
     // handoff: the marker of the summarisation, and nothing behind it, is what cuts the
@@ -9477,12 +10004,10 @@ fn run_handoff(
     // text is the number the next ask is weighed against, and the first number the server gives
     // on the next ask takes the meter where it is, as it always does.
     let made = estimate_tokens(&guard.build_history_in(chat));
-    // Whether what this summary made is space at all. The room it leaves is weighed with the same
-    // least room the results of a call are weighed with: under it the next ask is held back again
-    // on its first measure, and the conversation is summarised afresh for nothing. That is what the
-    // flag below records.
+    // A summary that leaves almost no room for more work should not trigger a second
+    // summary of the same conversation.
     let room_left = config::compaction_room(&guard.cfg, guard.ctx_total);
-    guard.live_mut(chat).room_spent = made.saturating_add(LEAST_ROOM_FOR_RESULTS) > room_left;
+    guard.live_mut(chat).room_spent = made.saturating_add(1_024) > room_left;
     proglog::note(
         proglog::ROOM,
         &format!(
@@ -9624,261 +10149,175 @@ impl Drop for MakingRoom {
     }
 }
 
-// A little room over the limit, so that a result measured to fit is not a result that fills the
-// window to its last token: the server counts the markers of the conversation as well, and the
-// counting of the tokenizer is of the text alone.
+// Leave room for the message wrappers on servers that cannot render the prompt for us.
 const RESULT_ROOM_MARGIN: u64 = 64;
+const RESULT_HANDOFF_RESERVE: u64 = 512;
+// Bound the work done by the tokenizer and the server's template endpoint even if a command
+// prints millions of lines. This ceiling applies only to copies of results sent to the model.
+const MAX_RESULT_BYTES: usize = 4 * 1024 * 1024;
 
-// The least room the results of a step are left with before the fitting of them is worth doing at
-// all. Under this the cutting leaves a result that says almost nothing - a line or two of what a
-// command printed - and a conversation with so little room to spare is a conversation the handoff
-// summary is for: the request is held back, the space is made, and the results have then the room
-// of a conversation that was read short, where they are fitted to it and say what they said.
-const LEAST_ROOM_FOR_RESULTS: u64 = 1_024;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResultFit {
+    Fits { shortened: bool },
+    TooLarge,
+}
 
-// One tool result in the current model-facing conversation, held aside while the tokenizer
-// counts it without holding the state lock. The message and call ids are rechecked afterwards,
-// for the chat may have changed in the moment the counting takes.
 struct ResultBody {
     index: usize,
-    id: String,
-    call_id: String,
-    said: String,
-    est: u64,
+    text: String,
+    chars: usize,
 }
 
-// Replace the text of one tool result in the request being assembled. The stored message is
-// deliberately left untouched: the full result remains available in the transcript and in the
-// UI, while only the model-facing copy is bounded. Image parts, when present, are preserved.
-fn replace_tool_result_in_history(history: &mut Value, call_id: &str, text: &str) -> bool {
-    let Some(items) = history.as_array_mut() else {
-        return false;
-    };
-    let Some(message) = items.iter_mut().find(|item| {
-        item.get("role").and_then(Value::as_str) == Some("tool")
-            && item.get("tool_call_id").and_then(Value::as_str) == Some(call_id)
-    }) else {
-        return false;
-    };
-    let Some(content) = message.get_mut("content") else {
-        return false;
-    };
-    match content {
-        Value::String(current) => *current = text.to_string(),
-        Value::Array(parts) => {
-            if let Some(part) = parts.iter_mut().find(|part| {
-                part.get("type").and_then(Value::as_str) == Some("text")
-            }) {
-                if let Some(current) = part.get_mut("text") {
-                    *current = json!(text);
-                } else {
-                    part["text"] = json!(text);
-                }
-            } else {
-                parts.insert(0, json!({ "type": "text", "text": text }));
-            }
-        }
-        other => *other = json!(text),
+fn result_text(message: &mut Value) -> Option<&mut String> {
+    if message["role"] != "tool" {
+        return None;
     }
-    true
+    let content = message.get_mut("content")?;
+    let text = match content {
+        Value::Array(parts) => parts
+            .iter_mut()
+            .find(|part| part["type"] == "text")?
+            .get_mut("text")?,
+        other => other,
+    };
+    match text {
+        Value::String(text) => Some(text),
+        _ => None,
+    }
 }
 
-// Tool results can be large and unpredictable, so their model-facing copies are fitted to the
-// remaining context before the next request. Every tool result after the newest successful
-// summary is considered, not only the final consecutive run: earlier results must remain bounded
-// on later requests too. The full text in Chat.messages is never changed and never persisted, so
-// what the user reads under a call is the whole of what the call printed. Space is allotted to
-// the results from the newest backwards, for the result of the last call is the thing the model
-// is being asked about.
-fn keep_results_inside_the_space(
-    state: &Arc<Mutex<State>>,
-    chat: &str,
-    history: &mut Value,
-) -> bool {
-    // Gather every result that is still part of the model's current conversation. Messages
-    // represented by the latest summary are already omitted by build_history_in and need not
-    // be counted or copied again.
-    let (limit, llama_dir, model_id, bodies, rest) = {
-        let Ok(guard) = state.lock() else { return false };
-        let total = guard.ctx_total;
-        if total == 0 || !guard.compaction_on() {
-            return false;
+fn put_tool_results(body: &mut Value, results: &[ResultBody], mut bytes: usize) -> bool {
+    let mut shortened = false;
+    let mut reserved = results
+        .iter()
+        .map(|one| one.text.len().min(RESULT_NOTICE_BYTES))
+        .sum::<usize>();
+    for one in results.iter().rev() {
+        reserved -= one.text.len().min(RESULT_NOTICE_BYTES);
+        let share = bytes.saturating_sub(reserved).min(one.text.len());
+        let text = cut_middle(&one.text, one.chars, share);
+        shortened |= share < one.text.len();
+        bytes = bytes.saturating_sub(text.len());
+        if let Some(content) = result_text(&mut body["messages"][one.index]) {
+            *content = text;
         }
-        let Some(held) = guard.chat_of(chat) else {
-            return false;
-        };
-        let model_id = guard
-            .model()
-            .map(|one| one.path.display().to_string())
-            .unwrap_or_default();
-        let limit = config::compaction_room(&guard.cfg, total);
-        let first_visible = last_summary_place(held)
-            .map(|place| place.saturating_add(1))
-            .unwrap_or(0);
-        let mut found: Vec<ResultBody> = Vec::new();
-        for (place, one) in held.messages.iter().enumerate().skip(first_visible) {
-            if one.role != "Tool" || one.cancelled || one.call_id.is_empty() {
-                continue;
-            }
-            found.push(ResultBody {
-                index: place,
-                id: one.id.clone(),
-                call_id: one.call_id.clone(),
-                said: one.tool.clone(),
-                est: estimate_tokens(&json!([{ "content": one.tool.clone() }])),
+    }
+    shortened
+}
+
+fn estimated_prompt(body: &Value) -> u64 {
+    let schema = if let Some(tools) = body.get("tools") {
+        (tools.to_string().len() as u64).div_ceil(4)
+    } else {
+        0
+    };
+    estimate_tokens(&body["messages"]).saturating_add(schema)
+}
+
+// The input here is the request itself, including the message wrappers and tool definitions.
+// Moving text out of this copy keeps the stored transcript and the tool call IDs intact.
+fn fit_tool_results(
+    body: &mut Value,
+    limit: u64,
+    tokenizer: Option<(&str, &str)>,
+    base_url: Option<&str>,
+    cancel: &AtomicBool,
+) -> Option<ResultFit> {
+    let mut results = Vec::new();
+    for (index, item) in body["messages"].as_array_mut()?.iter_mut().enumerate() {
+        if let Some(text) = result_text(item).filter(|text| !text.is_empty()) {
+            results.push(ResultBody {
+                index,
+                chars: text.chars().count(),
+                text: std::mem::take(text),
             });
         }
-        if found.is_empty() || model_id.is_empty() {
-            return false;
-        }
-        // Remove every full result text from the estimate to obtain the non-result portion of
-        // this exact request. Do not use ctx_used as a floor here: it describes the previous
-        // request and already includes the previous model-facing copies of these results. Adding
-        // the current result counts on top of that number would count old results twice and
-        // needlessly strip the new request. The pre-send limit check still uses ctx_used where
-        // it is a valid floor for the conversation the server last saw.
-        let of_results: u64 = found.iter().map(|one| one.est).sum();
-        let rest = estimate_tokens(history).saturating_sub(of_results);
-        (limit, guard.cfg.llama_dir.clone(), model_id, found, rest)
-    };
-
-    let budget = limit.saturating_sub(rest.saturating_add(RESULT_ROOM_MARGIN));
-    if budget < LEAST_ROOM_FOR_RESULTS {
-        // There is no room worth cutting into. The conversation behind the results is itself come
-        // to the limit, which is the work of a handoff summary and not of a receipt left with a
-        // line or two in it.
-        return false;
     }
-    // Count the complete model-facing tool output in one tokenizer process. Joining the bodies
-    // also avoids loading the model vocabulary once for every result in the conversation.
-    let all_results = bodies
+    if results.is_empty() {
+        return None;
+    }
+    let room = limit.saturating_sub(estimated_prompt(body).saturating_add(RESULT_ROOM_MARGIN));
+    let original = results.iter().map(|one| one.text.len()).sum::<usize>();
+    let minimum = results
         .iter()
-        .map(|one| one.said.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let estimated: Vec<u64> = bodies.iter().map(|one| one.est).collect();
-    let estimated_total: u64 = estimated.iter().sum();
-    let counted_total = llama::token_count(&llama_dir, &model_id, &all_results)
-        .map(|tokens| tokens as u64)
-        .unwrap_or(estimated_total);
-    // The exact count belongs to the joined text. Apportion it by each result's estimate so the
-    // existing newest-first fitting can still preserve more detail from recent results.
-    let mut counted: Vec<u64> = if estimated_total == 0 {
-        estimated
+        .map(|one| one.text.len().min(RESULT_NOTICE_BYTES))
+        .sum::<usize>();
+    let upper = original
+        .min(MAX_RESULT_BYTES)
+        .min(limit.saturating_mul(8) as usize)
+        .max(minimum);
+    let short = put_tool_results(body, &results, upper);
+
+    // Count the complete result once when it is reasonably sized. An enormous result has
+    // already been reduced to a bounded candidate, so it can never exhaust the tokenizer.
+    let count = tokenizer.and_then(|(dir, model)| {
+        let mut words = String::new();
+        for one in &results {
+            let text = result_text(&mut body["messages"][one.index])?;
+            if !words.is_empty() {
+                words.push('\n');
+            }
+            words.push_str(text);
+        }
+        llama::token_count(dir, model, &words, cancel)
+    });
+
+    // The text tokens alone cannot tell how expensive the retained edges are, or how
+    // much room the chat template uses. Verify the rendered candidate before sending it.
+    let images = body["messages"].as_array()?.iter()
+        .filter_map(|message| message["content"].as_array())
+        .flatten()
+        .filter(|part| part["type"] == "image_url")
+        .count() as u64;
+    let measure = |body: &Value| {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        llama::prompt_token_count(base_url?, body)
+            .map(|tokens| tokens.saturating_add(images.saturating_mul(1000)))
+    };
+    match measure(body) {
+        Some(tokens) if tokens <= limit => return Some(ResultFit::Fits { shortened: short }),
+        Some(_) => {
+            put_tool_results(body, &results, minimum);
+            if !measure(body).is_some_and(|tokens| tokens <= limit) {
+                return Some(ResultFit::TooLarge);
+            }
+            // Search for the largest fitting head/tail excerpt with the already running
+            // server. No additional llama-tokenize process is started.
+            let mut best = minimum;
+            let mut high = upper;
+            for _ in 0..10 {
+                if high - best <= 1 {
+                    break;
+                }
+                let next = best + (high - best) / 2;
+                put_tool_results(body, &results, next);
+                match measure(body) {
+                    Some(tokens) if tokens <= limit => best = next,
+                    Some(_) => high = next,
+                    None => break,
+                }
+            }
+            return Some(ResultFit::Fits {
+                shortened: put_tool_results(body, &results, best),
+            });
+        }
+        None if results.len() == 1 && count.is_some_and(|tokens| tokens <= room) => {
+            return Some(ResultFit::Fits { shortened: short });
+        }
+        None => {}
+    }
+
+    // Without the server endpoints, budget one token per result byte instead of
+    // extrapolating the average density of the discarded middle to the remaining text.
+    let bytes = (room as usize).min(upper).max(minimum);
+    let shortened = put_tool_results(body, &results, bytes);
+    Some(if room as usize >= minimum && !cancel.load(Ordering::Relaxed) {
+        ResultFit::Fits { shortened }
     } else {
-        estimated
-            .iter()
-            .map(|tokens| {
-                ((counted_total as u128 * *tokens as u128) / estimated_total as u128) as u64
-            })
-            .collect()
-    };
-    if estimated_total != 0 {
-        let apportioned: u64 = counted.iter().sum();
-        if let Some(last) = counted.last_mut() {
-            *last += counted_total.saturating_sub(apportioned);
-        }
-    }
-    let asked: u64 = counted.iter().sum();
-    if asked <= budget {
-        return false;
-    }
-
-    // Spend the available result budget from newest to oldest, so recent outputs retain the
-    // greatest detail when the aggregate tool output is too large.
-    let mut left = budget;
-    let mut shares: Vec<u64> = vec![0; bodies.len()];
-    for n in (0..bodies.len()).rev() {
-        let want = counted[n].min(left);
-        shares[n] = want;
-        left = left.saturating_sub(want);
-    }
-
-    let mut replacements: Vec<(usize, String, String, String, u64, u64)> = Vec::new();
-    for (n, one) in bodies.iter().enumerate() {
-        let share = shares[n];
-        let keep = if share == 0 || counted[n] == 0 {
-            0usize
-        } else {
-            let per = one.said.chars().count() as f64 / counted[n] as f64;
-            ((share as f64) * per * 0.95) as usize
-        };
-        let made = match cut_middle(&one.said, keep) {
-            Some(short) => short,
-            None => format!(
-                "{}{}{}",
-                RESULT_TELL_HEAD,
-                one.said.chars().count(),
-                RESULT_TELL_TAIL
-            ),
-        };
-        if made != one.said {
-            replacements.push((
-                one.index,
-                one.id.clone(),
-                one.call_id.clone(),
-                made,
-                counted[n],
-                share,
-            ));
-        }
-    }
-    if replacements.is_empty() {
-        return false;
-    }
-
-    // The tokenizer ran with no hold on the state. Each source message is looked at again before
-    // its copy is put into the request, for the chat may have changed in the moment the counting
-    // takes: a message taken out, or a call stopped since, is left out of the fitting.
-    let wanted: Vec<(String, String, u64, u64)> = {
-        let Ok(guard) = state.lock() else { return false };
-        let Some(held) = guard.chat_of(chat) else { return false };
-        replacements
-            .into_iter()
-            .filter(|(index, id, call_id, _, _, _)| {
-                held.messages
-                    .get(*index)
-                    .map(|message| {
-                        message.id == *id
-                            && message.role == "Tool"
-                            && message.call_id == *call_id
-                            && !message.cancelled
-                    })
-                    .unwrap_or(false)
-            })
-            .map(|(_, _, call_id, made, tokens, share)| (call_id, made, tokens, share))
-            .collect()
-    };
-
-    let mut cut = 0usize;
-    for (call_id, made, tokens, share) in wanted {
-        if !replace_tool_result_in_history(history, &call_id, &made) {
-            continue;
-        }
-        cut += 1;
-        proglog::note(
-            proglog::ROOM,
-            &format!(
-                "the copy of a tool result that goes out with the request was shortened: the \
-                 conversation measured {} with all the results of it and the limit set for the \
-                 summarisation is {}, so the result of {} tokens was kept to {}; the middle of it \
-                 is left out of the request and the start and the end stand in its place, while the \
-                 whole of the result remains in the chat",
-                rest + asked,
-                limit,
-                tokens,
-                share,
-            ),
-        );
-    }
-    if cut == 0 {
-        return false;
-    }
-    tell(
-        state,
-        "Large tool results were shortened in the model request; the full results remain in the chat",
-    );
-    true
+        ResultFit::TooLarge
+    })
 }
 
 fn maybe_compact(
@@ -9887,6 +10326,9 @@ fn maybe_compact(
     cancel: &Arc<AtomicBool>,
     weigh: Weigh,
     chat: &str) -> bool {
+    if cancel.load(Ordering::Relaxed) {
+        return false;
+    }
     // The chat is having its space made from here to the end of the weighing, whether a summary
     // comes of it or not.
     let _making = MakingRoom::new(state, chat);
@@ -9944,7 +10386,10 @@ fn maybe_compact(
                     }
                 }
             };
-            let wants = config::compaction_wanted(&guard.cfg, used, guard.ctx_total);
+            let wants = config::compaction_wanted(&guard.cfg, used, guard.ctx_total)
+                || (matches!(weigh, Weigh::Talk)
+                    && guard.compaction_on()
+                    && guard.live_ref(chat).tool_result_shortened);
             // The weighing itself, with the three numbers it was read from. The way it is
             // weighed is informed as well, for the two ways answer differently at the two
             // places an answer is weighed, and a user of the log has to know which of them a
@@ -10489,8 +10934,8 @@ fn run_turn(
         // An image the model cannot be shown is reported out loud, so the user does not wonder
         // why the model looks blind at it.
         let pictures = kept.iter().filter(|a| a.image).count();
-        if pictures > 0 && !state.pictures_can_go() {
-            state.push_note_in(chat, 
+        if pictures > 0 && !state.pictures_can_go_in(chat) {
+            state.push_note_in(chat,
                 "The images of this message cannot be shown to this model: turn vision on in the model settings, then send the message again",
                 true,
             );
@@ -10649,7 +11094,10 @@ fn run_turn(
         // stopped at. Both mean a call the server would else owe an answer to.
         let mut carried_prompt: String = match &carried {
             Some(word) => word.clone(),
-            None if going_on => String::from(CONTINUE_PROMPT),
+            None if going_on => goal_state(state, chat)
+                .0
+                .map(|active| crate::goal::continue_prompt(&active))
+                .unwrap_or_else(|| String::from(CONTINUE_PROMPT)),
             None => String::new(),
         };
         // The step before this one may have left a turn of the model with nothing in it, which
@@ -10667,11 +11115,11 @@ fn run_turn(
             }
         }
         let carried_prompt: &str = carried_prompt.as_str();
-        let (mut history, code_on, search_on, rag_on, planning_on, switches, thought,
-         compaction_on) = {
+        let (history, code_on, search_on, rag_on, planning_on, switches, computer_vision, computer_use_available, thought,
+         compaction_on, goal_on, goal_paused) = {
             let Ok(guard) = state.lock() else { return Ended::Halted };
             (
-                go_on_words(&guard, carried_prompt),
+                go_on_words(&guard, chat, carried_prompt),
                 guard.chat_of(chat).map(|c| c.meta.code_enabled).unwrap_or(false),
                 guard
                     .chat_of(chat)
@@ -10686,76 +11134,17 @@ fn run_turn(
                     .chat_of(chat)
                     .map(|c| c.meta.tools.clone())
                     .unwrap_or_default(),
+                guard.pictures_can_go_in(chat),
+                guard.computer_use_available,
                 guard.thinking_ask(),
                 guard.compaction_on(),
+                guard.chat_of(chat).is_some_and(|one| one.meta.goal.is_some()),
+                guard.chat_of(chat).is_some_and(|one| one.meta.goal_paused),
             )
         };
-        // Tool results are the text whose size cannot be known in advance: a command prints what
-        // it prints, and a file read is as long as the file. Fit their model-facing copies to the
-        // remaining context using the model's tokenizer, while leaving the full transcript alone.
-        let _results_shortened = keep_results_inside_the_space(state, chat, &mut history);
-        // The size of the context is weighed before the request is sent, and the space is freed
-        // out of a handoff summary when the conversation remains past the limit. It cannot wait
-        // for the request, as the hand over an answer does: a conversation that is sent past
-        // the limit is cut off under its first piece, the model never comes to a word, and the
-        // answer ends under the text about a context window that filled. That is read as an
-        // error in the
-        // program, and it is the very error the summarisation was set aside to keep the
-        // conversation out of. The result of a tool is the commonest path there, for it is
-        // written into the chat after the last number the server spoke: the conversation
-        // remains past the limit only from that moment, and the next ask would else go out over
-        // it.
-        if room_past_the_limit(state, &history, chat) {
-            // The answer is laid aside while the summary takes the chat, as it is when the
-            // writing is stopped under the weight of an answer.
-            let made = make_room(state, server, cancel, chat);
-            let Ok(mut guard) = state.lock() else { return Ended::Halted };
-            if !made {
-                // Either a summary is owed, which the user is asked of in the usual way, or the
-                // summary never came. Sending the request over the limit anyway is what leaves
-                // the chat under an empty turn, so the answer ends here and the reason is where
-                // the user reads it.
-                guard.live_mut(chat).generating = false;
-                guard.busy = guard.any_generating();
-                if guard.handoff_owed_in(chat) {
-                    guard.set_status(
-                        "The handoff summary was not written. Start it again from the summarisation timeline",
-                    );
-                } else {
-                    guard.push_note_in(chat, 
-                        "The conversation is past the summarisation limit and no space could be made, so the answer ends here. Request the work in parts small enough for the context, or give the model a larger context",
-                        false,
-                    );
-                    guard.set_status(
-                        "The conversation is past the summarisation limit and no space could be made",
-                    );
-                }
-                guard.persist_in(chat);
-                break Ended::Halted;
-            }
-            // The conversation the request is sent with is another conversation now: the text
-            // the summary means are left out of it, and the summary itself is at the end of it.
-            // A word carried over from the step before was searched for in the conversation as
-            // it was before the space was freed, and it spoke of a turn of nothing or of a call
-            // that was at the end of the conversation. Behind a handoff block neither is there
-            // any more: the block ends the conversation and reports in its own text that the
-            // work is to be continued, so the word is dropped rather than paid for a second
-            // time out of the space the summarisation was meant to win.
-            let talk = guard.build_history_in(chat);
-            if ends_on_summary_mark(&talk) {
-                carried = None;
-            }
-            // The word of this ask is read again the same way it is read at the top of every
-            // step, so that dropping the stale one leaves the word of a turn that only goes on
-            // remaining where it was.
-            let carried_prompt: &str = match &carried {
-                Some(word) => word.as_str(),
-                None if going_on => CONTINUE_PROMPT,
-                None => "",
-            };
-            history = go_on_words(&guard, carried_prompt);
-            guard.live_mut(chat).generating = true;
-            guard.set_status("Space was created. The model is going on with the answer");
+        let mut switches = switches;
+        if !computer_vision || !computer_use_available {
+            switches.computer_use = false;
         }
         // The tools of the servers of the user's own. A server whose tools were never read is
         // checked here, out of the lock, and once: what the server answered is kept, so the
@@ -10787,9 +11176,10 @@ fn run_turn(
         // with none: the text the user stopped are at the end of the conversation, and a call
         // cut in half cannot be mended.
         let use_tools = !resuming
-            && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty());
+            && (code_on || search_on || rag_on || planning_on || !mcp_tools.is_empty()
+                || switches.browser_use || switches.computer_use
+                || (goal_on && !goal_paused));
         let mut body = json!({
-            "messages": history,
             "stream": true,
             // The usage numbers drive the context meter.
             "stream_options": { "include_usage": true },
@@ -10801,6 +11191,7 @@ fn run_turn(
             // stopped.
             "timings_per_token": true,
         });
+        body["messages"] = history;
         // The thinking of the chat rides on the request. The badge of the thinking mode and the
         // keeping of the thinking of the earlier turns are text for the chat template of this
         // one ask, so a badge moved between two answers costs neither a flag of the server nor
@@ -10809,7 +11200,7 @@ fn run_turn(
             body["chat_template_kwargs"] = thought;
         }
         if use_tools {
-            if let Some(list) = offered_with_planning(
+            if let Some(list) = offered_with_goal(
                 sandbox_on,
                 planning_on,
                 code_on,
@@ -10819,6 +11210,7 @@ fn run_turn(
                 &mcp_tools,
                 &switches,
                 compaction_on,
+                goal_on && !goal_paused,
             ) {
                 body["tools"] = list;
                 body["tool_choice"] = json!("auto");
@@ -10832,6 +11224,78 @@ fn run_turn(
             body["id_slot"] = json!(slot);
         }
 
+        let (total, threshold, llama_dir) = {
+            let Ok(guard) = state.lock() else { return Ended::Halted };
+            let total = guard.ctx_total;
+            (total, config::compaction_room(&guard.cfg, total), guard.cfg.llama_dir.clone())
+        };
+        let room = threshold.saturating_sub(1).min(total.saturating_sub(
+            if compaction_on { RESULT_HANDOFF_RESERVE } else { RESULT_ROOM_MARGIN }
+        ));
+        let fitted = if total != 0 {
+            fit_tool_results(&mut body, room, Some((&llama_dir, &model.id())), Some(&base_url), cancel)
+        } else {
+            None
+        };
+        if cancel.load(Ordering::Relaxed) {
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
+            guard.finish_answer(chat);
+            guard.set_status("Stopped");
+            break Ended::Halted;
+        }
+        let too_full = match fitted {
+            Some(ResultFit::Fits { shortened }) => {
+                if shortened {
+                    proglog::note(proglog::ROOM,
+                        "Tool results were shortened in the model request. The full results remain in the chat.");
+                }
+                false
+            }
+            Some(ResultFit::TooLarge) => true,
+            None => room_past_the_limit(state, &body["messages"], chat),
+        };
+        if too_full {
+            if !compaction_on {
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                let words = "The tool results and conversation cannot fit in the model context window";
+                guard.finish_answer(chat);
+                guard.push_note_in(chat, words, false);
+                guard.set_status(words);
+                guard.persist_in(chat);
+                break Ended::Halted;
+            }
+            // A rendered prompt can exceed the limit even when the text estimate is smaller.
+            if fitted.is_some() {
+                let Ok(mut guard) = state.lock() else { return Ended::Halted };
+                let live = guard.live_mut(chat);
+                live.ctx_used = live.ctx_used.max(threshold);
+            }
+            let made = make_room(state, server, cancel, chat);
+            let Ok(mut guard) = state.lock() else { return Ended::Halted };
+            if !made {
+                guard.live_mut(chat).generating = false;
+                guard.busy = guard.any_generating();
+                if guard.handoff_owed_in(chat) {
+                    guard.set_status(
+                        "The handoff summary was not written. Start it again from the summarisation timeline",
+                    );
+                } else {
+                    let words = "The conversation is past the summarisation limit and no space could be made";
+                    guard.push_note_in(chat, words, false);
+                    guard.set_status(words);
+                }
+                guard.persist_in(chat);
+                break Ended::Halted;
+            }
+            if ends_on_summary_mark(&guard.build_history_in(chat)) {
+                carried = None;
+            }
+            guard.live_mut(chat).generating = true;
+            guard.set_status("Space was created. The model is going on with the answer");
+            steps -= 1;
+            continue;
+        }
+
         // Every piece of new text goes into the state, so the window can show it while it
         // arrives.
         let stream_state = state.clone();
@@ -10840,15 +11304,22 @@ fn run_turn(
         // The thinking of this step is measured, so that the header of the panel can say how
         // long the model thought for.
         if let Ok(mut guard) = state.lock() {
+            if fitted == Some(ResultFit::Fits { shortened: true }) {
+                // A previous request or the transcript may have put a larger number
+                // on the meter. That size must not interrupt this smaller request.
+                guard.live_mut(chat).ctx_used = estimate_tokens(&body["messages"]);
+                guard.live_mut(chat).ctx_fresh = true;
+            }
             guard.live_mut(chat).thought_start = None;
             guard.live_mut(chat).thought_end = None;
+            guard.live_mut(chat).live_thought_offsets.clear();
             guard.live_mut(chat).live_thought_ms = 0;
             guard.live_mut(chat).live_thought_done = false;
             // The meter means this step alone, and for every step of an answer. The text under
             // the number follow the images the message carries; the server has none of them, so
             // the count is read from the text that go out.
             guard.live_mut(chat).progress = 0;
-            guard.live_mut(chat).progress_images = pending_images(&history);
+            guard.live_mut(chat).progress_images = pending_images(&body["messages"]);
             guard.live_mut(chat).progress_on = true;
             if guard.corporate_on_in(chat) {
                 guard.live_mut(chat).live_work_head = String::from(corporate::THINKING);
@@ -10949,8 +11420,12 @@ fn run_turn(
                     if let Some(begun) = guard.live_ref(chat).thought_start {
                         guard.live_mut(chat).live_thought_ms = now.duration_since(begun).as_millis() as u64;
                     }
-                    guard.live_mut(chat).live_thought_done = false;
-                    guard.live_mut(chat).live_reasoning.push_str(piece);
+                    let live = guard.live_mut(chat);
+                    if !piece.is_empty() && (live.live_thought_offsets.is_empty() || live.live_thought_done) {
+                        live.live_thought_offsets.push(live.live_text.encode_utf16().count());
+                    }
+                    live.live_thought_done = false;
+                    live.live_reasoning.push_str(piece);
                     // A thought is a note about the answer as well: the text that was sent is
                     // worked through by now.
                     if finish_progress(&mut guard, chat) {
@@ -11104,6 +11579,13 @@ fn run_turn(
         );
 
         let Ok(mut guard) = state.lock() else { return Ended::Halted };
+        if compaction_on
+            && fitted == Some(ResultFit::Fits { shortened: true })
+            && answer.error.is_none()
+            && !answer.stopped
+        {
+            guard.live_mut(chat).tool_result_shortened = true;
+        }
         // A step that ended without a word leaves no meter remaining behind.
         guard.live_mut(chat).progress_on = false;
         let live = std::mem::take(&mut guard.live_mut(chat).live_text);
@@ -11257,7 +11739,7 @@ fn run_turn(
                     guard.set_status("Space was created. The model is going on with the answer");
                     continue;
                 }
-                guard.push_note_in(chat, 
+                guard.push_note_in(chat,
                     if room { EMPTY_TURN_TWICE_WORDS } else { EMPTY_TURN_CUT_WORDS },
                     false,
                 );
@@ -11498,6 +11980,7 @@ fn run_turn(
                 // so the user reads one answer and not two.
                 let joined = match &resumed {
                     Some(id) => guard.append_resumed(
+                        chat,
                         id,
                         &answer_text,
                         &answer_thinking,
@@ -11506,7 +11989,7 @@ fn run_turn(
                     None => false,
                 };
                 if !joined {
-                    guard.push_message_in(chat, 
+                    guard.push_message_in(chat,
                         "Assistant",
                         &answer_text,
                         &answer_thinking,
@@ -11607,7 +12090,13 @@ fn run_turn(
         // writing that was stopped is not kept over them. See `meter_after`.
         let used = answer.prompt_tokens + answer.completion_tokens;
         let sent = answer.sent();
-        let told = guard.build_history_in(chat);
+        let full_history;
+        let told = if fitted == Some(ResultFit::Fits { shortened: true }) {
+            &body["messages"]
+        } else {
+            full_history = guard.build_history_in(chat);
+            &full_history
+        };
         let was_meter = guard.live_ref(chat).ctx_used;
         // A request that stated nothing of the conversation at all, which is a way back to the
         // server that failed before the first piece came, leaves the meter where the request
@@ -11615,9 +12104,9 @@ fn run_turn(
         // did not change while the server never saw it, and the measure of the text reads at
         // the half of what the server counted of the same conversation.
         guard.live_mut(chat).ctx_used = if used == 0 && sent == 0 {
-            used_after(was_meter, &told)
+            used_after(was_meter, told)
         } else {
-            meter_after(used, sent, &told)
+            meter_after(used, sent, told)
         };
         // What the meter was made of at the end of a request is the one item a user of the log
         // of the program must have to follow the rest of it. A request that spoke no number at
@@ -11783,10 +12272,24 @@ fn run_turn(
                 let Ok(mut guard) = state.lock() else {
                     continue;
                 };
-                let note = format!(
-                    "{} are switched off for this chat, so nothing ran",
-                    tool_group_word(group_of(&call.name).unwrap_or("tools"))
-                );
+                let criteria_missing = goal_requires_criteria(&call.name)
+                    && guard.chat_of(chat).is_some_and(|one| {
+                        one.meta.goal.is_some() && one.meta.goal_criteria.is_empty()
+                    });
+                let goal_unplanned = call.name == crate::goal::COMPLETE_NAME
+                    && guard.chat_of(chat).is_some_and(|one| {
+                        one.meta.goal.is_some() && one.meta.goal_criteria.is_empty()
+                    });
+                let note = if goal_unplanned {
+                    String::from("Register task-appropriate acceptance criteria with set_goal_criteria before reporting completion. The goal remains active.")
+                } else if criteria_missing {
+                    String::from("Before using this action, register concise acceptance criteria with set_goal_criteria. Nothing ran.")
+                } else {
+                    format!(
+                        "{} are switched off for this chat, so nothing ran",
+                        tool_group_word(group_of(&call.name).unwrap_or("tools"))
+                    )
+                };
                 let id = guard.begin_tool_in(chat, call, &note, "", 0);
                 guard.finish_tool_in(chat, &id, &note, false);
                 continue;
@@ -11885,6 +12388,11 @@ fn is_writing(call: &ToolCall) -> bool {
 // Every tool of a server of the user's own is outside that badge and its switches.
 fn group_of(name: &str) -> Option<&'static str> {
     match name {
+        crate::agentic::BROWSER_NAME => Some("browser_use"),
+        crate::agentic::COMPUTER_NAME => Some("computer_use"),
+        crate::goal::CRITERIA_NAME | crate::goal::COMPLETE_NAME | crate::goal::PAUSE_NAME => {
+            Some("goal")
+        }
         tools::TOOL_NAME => Some("commands"),
         editfile::EDIT_NAME | editfile::CREATE_NAME => Some("files"),
         viewimage::NAME | viewimage::ONE_NAME => Some("picture"),
@@ -11900,6 +12408,27 @@ fn group_of(name: &str) -> Option<&'static str> {
     }
 }
 
+fn goal_requires_criteria(name: &str) -> bool {
+    matches!(
+        name,
+        tools::TOOL_NAME
+            | editfile::EDIT_NAME
+            | editfile::CREATE_NAME
+            | download::NAME
+            | infographic::PROJECT_NAME
+            | infographic::LAYER_NAME
+            | infographic::CUTOUT_NAME
+            | infographic::CHECK_NAME
+            | infographic::RENDER_NAME
+            | tasks::CREATE_NAME
+            | tasks::EDIT_NAME
+            | tasks::APPEND_NAME
+            | tasks::COMPLETE_NAME
+            | tasks::CANCEL_NAME
+            | tasks::DELETE_NAME
+    )
+}
+
 // True when the open chat lets a call of this name through. The badge of the tools is read
 // where the tools are proposed; this is the same rule laid over the call itself, for a model
 // can name a tool it was never proposed.
@@ -11912,6 +12441,17 @@ fn tool_allowed(state: &Arc<Mutex<State>>, name: &str) -> bool {
 }
 
 fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
+    if matches!(
+        name,
+        crate::goal::CRITERIA_NAME | crate::goal::COMPLETE_NAME | crate::goal::PAUSE_NAME
+    ) {
+        let Ok(guard) = state.lock() else { return false };
+        return guard.chat_of(chat).is_some_and(|one| {
+            one.meta.goal.is_some()
+                && !one.meta.goal_paused
+                && (name != crate::goal::COMPLETE_NAME || !one.meta.goal_criteria.is_empty())
+        });
+    }
     // The search of the sources is on the badge of retrieval and not behind the badge of the
     // tools, so it is gated by its own switch.
     if name == rag::NAME {
@@ -11928,10 +12468,10 @@ fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
     if part == "summarise" && !guard.compaction_on() {
         return false;
     }
-    guard
-        .chat_of(chat)
-        .map(|c| c.meta.tools.value_of(part))
-        .unwrap_or(true)
+    guard.chat_of(chat).is_some_and(|c| {
+        (!goal_requires_criteria(name) || c.meta.goal.is_none() || !c.meta.goal_criteria.is_empty())
+            && c.meta.tools.value_of(part)
+    })
 }
 
 // The text of one line of the drop-down, for the line of the state and for the block of a call
@@ -11939,6 +12479,8 @@ fn tool_allowed_in(state: &Arc<Mutex<State>>, chat: &str, name: &str) -> bool {
 fn tool_group_word(part: &str) -> String {
     match part {
         "commands" => String::from("Terminal commands"),
+        "browser_use" => String::from("Browser use"),
+        "computer_use" => String::from("Computer use"),
         "files" => String::from("File management"),
         "picture" => String::from("The look at a picture"),
         "hand_out" => String::from("Handing a file to the user"),
@@ -11950,6 +12492,7 @@ fn tool_group_word(part: &str) -> String {
         // The text of the line, in the form the sentence about a tool that was not let through
         // reads well in.
         "summarise" => String::from("Manual summaries"),
+        "goal" => String::from("Goal actions"),
         other => String::from(other),
     }
 }
@@ -12010,11 +12553,46 @@ fn offered_with_planning(
         list.push(planning::ask_definition());
         list.push(planning::end_definition());
     }
-    // Corporate mode uses normal assistant messages as progress sub-blocks and adds no tools.
+    // Corporate mode displays normal assistant messages and adds no tools.
     if list.is_empty() {
         return None;
     }
     Some(Value::Array(list))
+}
+
+// Goal tools are independent of the user's ordinary tool switches: the active goal needs an
+// explicit way to report verified completion or pause for essential input even when no other
+// tools are enabled.
+#[allow(clippy::too_many_arguments)]
+fn offered_with_goal(
+    sandbox: bool,
+    planning_on: bool,
+    code_on: bool,
+    search_on: bool,
+    rag_on: bool,
+    access: tools::Access,
+    mcp_tools: &[Value],
+    switches: &store::ToolSwitches,
+    compaction_on: bool,
+    goal_on: bool,
+) -> Option<Value> {
+    let mut list = offered_with_planning(
+        sandbox,
+        planning_on,
+        code_on,
+        search_on,
+        rag_on,
+        access,
+        mcp_tools,
+        switches,
+        compaction_on,
+    )
+    .and_then(|made| made.as_array().cloned())
+    .unwrap_or_default();
+    if goal_on {
+        list.extend(crate::goal::definitions());
+    }
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 fn offered(
@@ -12027,10 +12605,18 @@ fn offered(
     switches: &store::ToolSwitches,
     compaction_on: bool,
 ) -> Option<Value> {
-    if !(code_on || search_on || rag_on || !mcp_tools.is_empty()) {
+    if !(code_on || search_on || rag_on || !mcp_tools.is_empty()
+        || switches.browser_use || switches.computer_use)
+    {
         return None;
     }
     let mut list: Vec<Value> = Vec::new();
+    if switches.browser_use {
+        list.push(crate::agentic::browser_definition());
+    }
+    if switches.computer_use {
+        list.push(crate::agentic::computer_definition(switches.computer_target));
+    }
     // The badge of the tools is the entry point to all of them, and the lines of its drop-down
     // are behind that entry point: a tool whose line is off is not proposed, and a badge that
     // is off proposes none of them whatever the lines say.
@@ -12219,6 +12805,8 @@ fn run_program_tool(
     // tool names when it has no file of its own.
     let shown = if target.is_empty() { shown } else { target };
     let doing = match call.name.as_str() {
+        crate::agentic::BROWSER_NAME => "Using the browser",
+        crate::agentic::COMPUTER_NAME => "Using the computer",
         name if mcp::is_tool(name) => "A tool of a server",
         editfile::EDIT_NAME => "Editing a file",
         editfile::CREATE_NAME => "Creating a file",
@@ -12234,6 +12822,9 @@ fn run_program_tool(
         planning::READ_NAME => "Reading the plan",
         planning::ASK_NAME => "Asking about the plan",
         planning::END_NAME => "Letting the plan go",
+        crate::goal::CRITERIA_NAME => "Registering acceptance criteria",
+        crate::goal::COMPLETE_NAME => "Verifying goal completion",
+        crate::goal::PAUSE_NAME => "Waiting for essential input",
         infographic::PROJECT_NAME => "Setting up a composition",
         infographic::LAYER_NAME => "Editing a layer",
         infographic::CUTOUT_NAME => "Previewing a key",
@@ -12258,6 +12849,169 @@ fn run_program_tool(
         guard.set_status(&text);
         id
     };
+    if call.name == crate::agentic::BROWSER_NAME {
+        let enabled = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.chat_of(chat).map(|one| one.meta.tools.browser_use))
+            .unwrap_or(false);
+        let words = call.arguments.clone();
+        let chat_id = chat.to_string();
+        let browser_workdir = workdir.to_path_buf();
+        let browser_watch = watch.clone();
+        let vision = state.lock().map(|guard| guard.pictures_can_go_in(chat)).unwrap_or(false);
+        let made = if enabled {
+            match crate::util::within(&watch, move || {
+                crate::agentic::browser_run(&words, &chat_id, &browser_workdir, &browser_watch, vision)
+            }) {
+                Some(made) => made,
+                None => tools::Report {
+                    ok: false,
+                    output: String::from("The browser action was stopped or timed out."),
+                },
+            }
+        } else {
+            tools::Report {
+                ok: false,
+                output: String::from("Browser use was turned off before this action began."),
+            }
+        };
+        let picture = crate::agentic::take_browser_screenshot(chat);
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_screenshot_tool_in(chat, &message_id, made, picture);
+        return;
+    }
+    if call.name == crate::agentic::COMPUTER_NAME {
+        let (switches, available, vision) = state
+            .lock()
+            .map(|guard| (
+                guard.chat_of(chat).map(|one| one.meta.tools.clone()).unwrap_or_default(),
+                guard.computer_use_available,
+                guard.pictures_can_go_in(chat),
+            ))
+            .unwrap_or_default();
+        let words = call.arguments.clone();
+        let chat_id = chat.to_string();
+        let stop_watch = watch.clone();
+        let made = if !available {
+            crate::agentic::ComputerResult {
+                report: tools::Report {
+                    ok: false,
+                    output: String::from("Computer use is available only in the desktop app."),
+                },
+                image: None,
+            }
+        } else if !switches.computer_use {
+            crate::agentic::ComputerResult {
+                report: tools::Report {
+                    ok: false,
+                    output: String::from("Computer use was turned off before this action began."),
+                },
+                image: None,
+            }
+        } else {
+            match crate::util::within(&watch, move || {
+                crate::agentic::computer_run(
+                    &words,
+                    &chat_id,
+                    switches.computer_target,
+                    vision,
+                    &stop_watch,
+                )
+            }) {
+                Some(made) => made,
+                None => crate::agentic::ComputerResult {
+                    report: tools::Report {
+                        ok: false,
+                        output: String::from("The computer action was stopped or timed out."),
+                    },
+                    image: None,
+                },
+            }
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_screenshot_tool_in(chat, &message_id, made.report, made.image);
+        return;
+    }
+    if call.name == crate::goal::CRITERIA_NAME {
+        let (active, existing) = state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.chat_of(chat).map(|one| {
+                    (one.meta.goal.clone(), one.meta.goal_criteria.clone())
+                })
+            })
+            .unwrap_or_default();
+        let made = active
+            .as_deref()
+            .ok_or_else(|| String::from("There is no active goal to register criteria for."))
+            .and_then(|active| crate::goal::set_criteria(&call.arguments, active, &existing));
+        let (ok, output) = match made {
+            Ok(criteria) => {
+                let text = format!(
+                    "Registered {} acceptance criteria. Preserve all of them through the work and verify each before completion.",
+                    criteria.len()
+                );
+                let Ok(mut guard) = state.lock() else { return };
+                if let Some(one) = guard.chat_of_mut(chat) {
+                    one.meta.goal_criteria = criteria;
+                    one.meta.updated = store::now_secs();
+                }
+                guard.persist_in(chat);
+                guard.touch();
+                (true, text)
+            }
+            Err(problem) => (false, problem),
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        guard.finish_tool_in(chat, &message_id, &output, ok);
+        return;
+    }
+    if call.name == crate::goal::COMPLETE_NAME {
+        let (active, criteria) = state
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard.chat_of(chat).map(|one| {
+                    (one.meta.goal.clone(), one.meta.goal_criteria.clone())
+                })
+            })
+            .unwrap_or_default();
+        let report = match active {
+            Some(active) => crate::goal::completion(&call.arguments, &active, &criteria),
+            None => crate::tools::Report {
+                ok: false,
+                output: String::from("There is no active goal to complete."),
+            },
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        if report.ok {
+            guard.set_goal_in(chat, None, false);
+        }
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
+        return;
+    }
+    if call.name == crate::goal::PAUSE_NAME {
+        let active = state
+            .lock()
+            .ok()
+            .and_then(|guard| guard.chat_of(chat).and_then(|one| one.meta.goal.clone()));
+        let report = if active.is_some() {
+            crate::goal::pause(&call.arguments)
+        } else {
+            crate::tools::Report {
+                ok: false,
+                output: String::from("There is no active goal to pause."),
+            }
+        };
+        let Ok(mut guard) = state.lock() else { return };
+        if report.ok {
+            guard.set_goal_in(chat, active, true);
+        }
+        guard.finish_tool_in(chat, &message_id, &report.output, report.ok);
+        return;
+    }
     // The clock of the call. A call of the program is stopped by the user in the same way as a
     // command: the marker is in the header of the block, and a call that is waited for -- the
     // question put to the user, above all -- gives up the moment the marker is pressed. A call
@@ -12323,7 +13077,7 @@ fn run_program_tool(
         let (vision, jailed) = {
             let Ok(guard) = state.lock() else { return };
             (
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
                 guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
             )
         };
@@ -12471,7 +13225,7 @@ fn run_program_tool(
         let Ok(mut guard) = state.lock() else { return };
         let held = guard.plan_words().unwrap_or_default();
         if held.trim().is_empty() {
-            guard.finish_tool_in(chat, 
+            guard.finish_tool_in(chat,
                 &message_id,
                 "The plan holds nothing, so it could not be released.",
                 false,
@@ -12479,7 +13233,7 @@ fn run_program_tool(
             return;
         }
         guard.live_mut(chat).plan_pending = Some(held);
-        guard.finish_tool_in(chat, 
+        guard.finish_tool_in(chat,
             &message_id,
             "The plan is released. This conversation ends here, and the plan becomes the first message of the work.",
             true,
@@ -12540,7 +13294,7 @@ fn run_program_tool(
         let (seen, jailed) = {
             let Ok(guard) = state.lock() else { return };
             (
-                guard.pictures_can_go(),
+                guard.pictures_can_go_in(chat),
                 guard.chat_of(chat).map(|one| one.meta.sandbox_enabled).unwrap_or(false),
             )
         };
@@ -12932,7 +13686,7 @@ mod tests {
         text.push_str(tail);
         let count = text.chars().count();
         let keep = 1_200usize;
-        let cut = cut_middle(&text, keep).expect("a cut of the result");
+        let cut = cut_middle(&text, count, keep);
         assert!(
             cut.chars().count() <= keep,
             "the cut came to {} when it was kept to {}",
@@ -12968,16 +13722,18 @@ mod tests {
                 forbidden
             );
         }
-        // A result with nothing worth taking out is not cut at all, and a room too little for a
-        // part of the result and the saying of it both gives nothing back.
-        assert!(
-            cut_middle("a line or two of output", keep).is_none(),
-            "a short result was cut"
-        );
-        assert!(
-            cut_middle(&text, 200).is_none(),
-            "a room of 200 characters was cut out of a result and a saying both"
-        );
+        // A short result is unchanged, even if there are other oversized results.
+        let short = "a line or two of output";
+        assert_eq!(cut_middle(short, short.chars().count(), keep), short);
+        let tiny = cut_middle(&text, count, RESULT_NOTICE_BYTES + 24);
+        assert!(tiny.starts_with("the command "));
+        assert!(tiny.ends_with(" came to"));
+        assert!(tiny.len() <= RESULT_NOTICE_BYTES + 24);
+        let unicode = "🪟".repeat(100);
+        let kept = cut_middle(&unicode, 100, RESULT_NOTICE_BYTES + 11);
+        assert!(kept.starts_with("🪟["));
+        assert!(kept.ends_with("]🪟"));
+        assert!(kept.contains("98 characters"));
         assert!(count > 10_000, "the result of the check is too small");
     }
 
@@ -13066,11 +13822,12 @@ mod tests {
             before,
             limit
         );
-        let mut request_history = state.lock().unwrap().build_history_in(&chat);
-        assert!(
-            keep_results_inside_the_space(&state, &chat, &mut request_history),
-            "tool results bigger than the space were left as they were"
+        let mut request = json!({ "messages": state.lock().unwrap().build_history_in(&chat) });
+        assert_eq!(
+            fit_tool_results(&mut request, limit - 1, None, None, &AtomicBool::new(false)),
+            Some(ResultFit::Fits { shortened: true }),
         );
+        let request_history = &request["messages"];
 
         let request_result = request_history
             .as_array()
@@ -13287,6 +14044,308 @@ mod tests {
         }
     }
 
+    #[test]
+    fn goal_tools_are_available_without_other_tools_only_while_a_goal_is_active() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let switches = engine.snapshot().tool_switches;
+        let offered_goal = |goal_on| {
+            offered_with_goal(
+                false,
+                false,
+                false,
+                false,
+                false,
+                tools::Access::default(),
+                &[],
+                &switches,
+                false,
+                goal_on,
+            )
+        };
+        assert!(offered_goal(false).is_none());
+        let names = offered_goal(true)
+            .expect("the goal has its own control tools")
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|one| String::from(one["function"]["name"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>();
+        assert!(names.iter().any(|name| name == crate::goal::COMPLETE_NAME));
+        assert!(names.iter().any(|name| name == crate::goal::CRITERIA_NAME));
+        assert!(names.iter().any(|name| name == crate::goal::PAUSE_NAME));
+
+        assert!(!tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+        {
+            let mut state = engine.state.lock().unwrap();
+            let chat_id = state.open_id();
+            let chat = state.chat_of_mut(&chat_id).unwrap();
+            chat.meta.goal = Some(String::from("Verify the feature"));
+            chat.meta.goal_criteria = vec![String::from("Feature check passes")];
+        }
+        assert!(tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+        assert!(tool_allowed(&engine.state, crate::goal::PAUSE_NAME));
+        {
+            let mut state = engine.state.lock().unwrap();
+            let chat_id = state.open_id();
+            state.chat_of_mut(&chat_id).unwrap().meta.goal_paused = true;
+        }
+        assert!(!tool_allowed(&engine.state, crate::goal::COMPLETE_NAME));
+    }
+
+    #[test]
+    fn the_active_goal_instruction_survives_handoff_rebuilding() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat_id = state.open_id();
+        state.push_message_in(&chat_id, "You", "Implement and verify the feature", "", 0, false);
+        assert!(!state
+            .build_history_in(&chat_id)
+            .to_string()
+            .contains("ACTIVE GOAL"));
+        state.chat_of_mut(&chat_id).unwrap().meta.goal =
+            Some(String::from("Implement and verify the feature"));
+        state.chat_of_mut(&chat_id).unwrap().meta.goal_criteria =
+            vec![String::from("The regression check passes")];
+        state.chat_of_mut(&chat_id).unwrap().messages.push(Message {
+            id: store::new_id(),
+            role: String::from("Summary"),
+            body: String::from("The implementation is underway; rerun the failing check."),
+            when: store::now_secs(),
+            ..Default::default()
+        });
+        let history = state.build_history_in(&chat_id);
+        let words = history.to_string();
+        assert!(words.contains("ACTIVE GOAL"));
+        assert!(words.contains("Implement and verify the feature"));
+        assert!(words.contains("The regression check passes"));
+        assert!(words.contains("rerun the failing check"));
+
+        state.chat_of_mut(&chat_id).unwrap().meta.goal_paused = true;
+        assert!(state
+            .build_history_in(&chat_id)
+            .to_string()
+            .contains("GOAL PAUSED"));
+    }
+
+    #[test]
+    fn a_goal_continues_after_an_answer_but_stops_on_completion_pause_cancel_or_error() {
+        assert!(goal_should_continue(&Ended::Done, true, false, false));
+        assert!(!goal_should_continue(&Ended::Done, false, false, false));
+        assert!(!goal_should_continue(&Ended::Done, true, true, false));
+        assert!(!goal_should_continue(&Ended::Done, true, false, true));
+        assert!(!goal_should_continue(&Ended::Halted, true, false, false));
+    }
+
+    #[test]
+    fn the_goal_command_stores_replaces_and_resumes_a_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let server_dir = std::env::temp_dir().join("autumn-natter-goal-command-server");
+        std::fs::create_dir_all(&server_dir).expect("the fake server folder");
+        std::fs::write(server_dir.join("llama-server"), "").expect("the fake server marker");
+        let engine = Engine::start(Config {
+            llama_dir: server_dir.display().to_string(),
+            model_id: String::from("/models/one.gguf"),
+            ..Config::default()
+        });
+        let mut state = engine.state.lock().unwrap();
+        state.models = vec![ModelInfo {
+            path: PathBuf::from("/models/one.gguf"),
+            name: String::from("one"),
+            kind: "GGUF",
+        }];
+        state.start_chat();
+        let chat = state.open_id();
+
+        let first = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal write a short story"),
+            Vec::new(),
+        )
+        .expect("the goal starts with a selected model and server");
+        assert_eq!(first.text, "write a short story");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("write a short story")
+        );
+        assert!(state.chat_of(&chat).unwrap().meta.goal_criteria.is_empty());
+
+        state.chat_of_mut(&chat).unwrap().meta.goal_paused = true;
+        let resumed = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal"),
+            Vec::new(),
+        )
+        .expect("the command resumes the active goal");
+        assert!(resumed.text.contains("write a short story"));
+        assert!(!state.chat_of(&chat).unwrap().meta.goal_paused);
+
+        let replaced = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal create a tested parser"),
+            Vec::new(),
+        )
+        .expect("a new goal replaces the active objective");
+        assert_eq!(replaced.text, "create a tested parser");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("create a tested parser")
+        );
+        assert!(state.chat_of(&chat).unwrap().meta.goal_criteria.is_empty());
+
+        let stop_goal = Engine::prepare_message_in(
+            &mut state,
+            &chat,
+            String::from("/goal stop"),
+            Vec::new(),
+        )
+        .expect("stop is ordinary goal text, not a stop command");
+        assert_eq!(stop_goal.text, "stop");
+        assert_eq!(
+            state.chat_of(&chat).unwrap().meta.goal.as_deref(),
+            Some("stop")
+        );
+    }
+
+    #[test]
+    fn goal_bar_controls_edit_pause_resume_and_clear_the_persistent_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (chat, old_start) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.open_id();
+            state.set_goal_in(&chat, Some(String::from("Write a story")), false);
+            let held = state.chat_of_mut(&chat).unwrap();
+            held.meta.goal_started -= 60;
+            held.meta.goal_criteria = vec![String::from("Story fits the requested style")];
+            (chat, held.meta.goal_started)
+        };
+
+        assert!(engine.set_goal_paused(true));
+        {
+            let state = engine.state.lock().unwrap();
+            let held = state.chat_of(&chat).unwrap();
+            assert!(held.meta.goal_paused);
+            assert_eq!(held.meta.goal_started, old_start);
+        }
+
+        engine
+            .edit_goal("Write a short story about autumn")
+            .expect("an active goal can be edited");
+        {
+            let state = engine.state.lock().unwrap();
+            let held = state.chat_of(&chat).unwrap();
+            assert_eq!(held.meta.goal.as_deref(), Some("Write a short story about autumn"));
+            assert!(held.meta.goal_criteria.is_empty());
+            assert!(!held.meta.goal_paused);
+            assert!(held.meta.goal_started > old_start);
+        }
+
+        assert!(engine.set_goal_paused(true));
+        assert!(engine.set_goal_paused(false));
+        assert!(!engine.state.lock().unwrap().chat_of(&chat).unwrap().meta.goal_paused);
+        assert!(engine.clear_goal());
+        let state = engine.state.lock().unwrap();
+        let held = state.chat_of(&chat).unwrap();
+        assert!(held.meta.goal.is_none());
+        assert_eq!(held.meta.goal_started, 0);
+        assert!(held.meta.goal_criteria.is_empty());
+    }
+
+    #[test]
+    fn only_a_valid_completion_report_clears_the_persisted_goal() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let (chat_id, workdir) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat_id = state.open_id();
+            state.set_goal_in(
+                &chat_id,
+                Some(String::from("Create and verify a parser")),
+                false,
+            );
+            state.push_message_in(&chat_id, "You", "Create and verify a parser", "", 0, false);
+            (chat_id, config::paths().data)
+        };
+        let criteria = ToolCall {
+            id: String::from("goal-criteria"),
+            name: String::from(crate::goal::CRITERIA_NAME),
+            arguments: String::from(
+                r#"{"goal":"Create and verify a parser","criteria":["The parser compiles"]}"#,
+            ),
+        };
+        run_program_tool(
+            &criteria,
+            "",
+            0,
+            &engine.state,
+            &workdir,
+            &Arc::new(AtomicBool::new(false)),
+            &chat_id,
+        );
+        assert_eq!(
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .chat_of(&chat_id)
+                .unwrap()
+                .meta
+                .goal_criteria,
+            ["The parser compiles"]
+        );
+        let cancel = AtomicBool::new(false);
+        let invalid = ToolCall {
+            id: String::from("goal-incomplete"),
+            name: String::from(crate::goal::COMPLETE_NAME),
+            arguments: String::from("{}"),
+        };
+        run_program_tool(&invalid, "", 0, &engine.state, &workdir, &Arc::new(cancel), &chat_id);
+        assert_eq!(
+            engine
+                .state
+                .lock()
+                .unwrap()
+                .chat_of(&chat_id)
+                .unwrap()
+                .meta
+                .goal
+                .as_deref(),
+            Some("Create and verify a parser")
+        );
+
+        let valid = ToolCall {
+            id: String::from("goal-complete"),
+            name: String::from(crate::goal::COMPLETE_NAME),
+            arguments: String::from(
+                r#"{"goal":"Create and verify a parser","summary":"Parser created and checked","checks":[{"criterion":"The parser compiles","passed":true,"evidence":"The project check completed successfully"}]}"#,
+            ),
+        };
+        run_program_tool(&valid, "", 0, &engine.state, &workdir, &Arc::new(AtomicBool::new(false)), &chat_id);
+        assert!(engine
+            .state
+            .lock()
+            .unwrap()
+            .chat_of(&chat_id)
+            .unwrap()
+            .meta
+            .goal
+            .is_none());
+    }
+
     // The handoff summary the model may request is behind the badge of the tools and behind the
     // line of its own, as every other tool of the program does. It is at all only while the
     // settings make the size of the context by a handoff summary: with compaction off there is
@@ -13369,57 +14428,20 @@ mod tests {
         assert!(tool_group_word("summarise").contains("ummar"));
     }
 
-    // The text of the space go out with the conversation while the settings make the
-    // space by a handoff summary, and go away when it remains off. A model that is never
-    // informed how the space is kept reads a full context as the end of its work, and
-    // compresses the part it was requested.
     #[test]
     fn the_words_of_the_room_stand_with_the_talk_while_compaction_stands_on() {
         let _guard = config::test_turn();
         setup();
         let engine = Engine::start(Config::default());
         open_a_chat(&engine);
-        let said = {
-            let state = engine.state.lock().unwrap();
-            state.build_history().to_string()
-        };
-        assert!(
-            said.contains("The context of this conversation stays open"),
-            "the text of the space did not go out with the conversation"
-        );
-        // The text says what the model is to make of the limits: no call limit, and nothing to
-        // leave out of the work.
-        assert!(said.contains("no limit on the number of tool calls"));
-        assert!(said.contains("Never leave a part of the work out"));
-        assert!(said.contains("Work until the work is complete"));
-        // The text go out once for the conversation, in a message of the role `system`.
-        let count = {
-            let state = engine.state.lock().unwrap();
-            state
-                .build_history()
-                .as_array()
-                .expect("a list of the conversation")
-                .iter()
-                .filter(|one| {
-                    one["content"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .starts_with("The context of this conversation stays open")
-                })
-                .count()
-        };
-        assert_eq!(count, 1, "the text of the space ride more than once with the conversation");
-        // Compaction off: no summary is ever written, so nothing is informed of a space that is
-        // never made.
-        {
-            let mut state = engine.state.lock().unwrap();
-            state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
-            let said = state.build_history().to_string();
-            assert!(
-                !said.contains("The context of this conversation stays open"),
-                "the text of the directory was with compaction off"
-            );
-        }
+        let mut state = engine.state.lock().unwrap();
+        let guidance = json!({ "role": "system", "content": compaction_words() });
+        let history = state.build_history();
+        let messages = history.as_array().unwrap();
+        assert_eq!(messages.iter().filter(|m| **m == guidance).count(), 1);
+
+        state.cfg.chat_compaction = String::from(config::COMPACTION_OFF);
+        assert!(!state.build_history().as_array().unwrap().contains(&guidance));
     }
 
     // The user works in one chat with the tools on and a level of thinking picked, and opens a
@@ -15088,6 +16110,89 @@ mod tests {
         assert_eq!(record.mime, "image/png");
     }
 
+    #[test]
+    fn screenshots_reach_the_preview_and_model_from_the_chat_attachment_folder() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let data = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNwbT36HwAFMQKPKIYtDwAAAABJRU5ErkJggg==";
+        let (chat, workdir, ids) = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            let chat = state.open_id();
+            let workdir = state.open_workdir().unwrap();
+            let model = ModelInfo {
+                path: workdir.join("test.gguf"),
+                name: String::from("test"),
+                kind: "GGUF",
+            };
+            std::fs::write(workdir.join("mmproj-test.gguf"), "").unwrap();
+            state.cfg.model_settings.entry(model.id()).or_default().vision = true;
+            state.chat_of_mut(&chat).unwrap().meta.model_id = model.id();
+            state.models.push(model);
+            // A tool finishing in the background still belongs to the chat that called it.
+            state.open_home();
+            let cases = [
+                (
+                    crate::agentic::COMPUTER_NAME,
+                    "screenshot",
+                    "desktop-screenshot.png",
+                ),
+                (crate::agentic::COMPUTER_NAME, "zoom", "desktop-zoom.png"),
+                (
+                    crate::agentic::BROWSER_NAME,
+                    "screenshot",
+                    "browser-screenshot.png",
+                ),
+            ];
+            let mut ids = Vec::new();
+            for (tool, action, name) in cases {
+                let call = ToolCall {
+                    id: store::new_id(),
+                    name: tool.to_string(),
+                    arguments: json!({"action": action}).to_string(),
+                };
+                let id = state.begin_tool_in(&chat, &call, action, "", 0);
+                state.finish_screenshot_tool_in(
+                    &chat,
+                    &id,
+                    tools::Report {
+                        ok: true,
+                        output: String::from("Captured screenshot."),
+                    },
+                    Some(attach::Incoming {
+                        name: name.to_string(),
+                        mime: String::from("image/png"),
+                        data: data.to_string(),
+                        text: String::new(),
+                    }),
+                );
+                let history = state.build_history_in(&chat);
+                let image = &history.as_array().unwrap().last().unwrap()["content"][1];
+                assert_eq!(image["type"], "image_url");
+                assert_eq!(image["image_url"]["url"], data);
+                let message = state.chat_of(&chat).unwrap().messages.last().unwrap();
+                assert!(!message.failed);
+                let attachment = &message.attachments[0];
+                assert_eq!(attachment.name, name);
+                assert!(!workdir.join(format!("{}.json", attachment.id)).exists());
+                ids.push(attachment.id.clone());
+            }
+            (chat, workdir, ids)
+        };
+
+        // Put one record back where an older build wrote it, then open the chat as the user does.
+        let file = format!("{}.json", ids[0]);
+        let legacy = workdir.join(&file);
+        std::fs::rename(attach::shelf(&workdir).join(file), &legacy).unwrap();
+        engine.open_chat(chat);
+        for id in ids {
+            assert_eq!(engine.attachment(&id).unwrap().data, data);
+        }
+        assert!(!legacy.exists());
+        std::fs::remove_dir_all(workdir).unwrap();
+    }
+
     // The text under the number of the meter follow the images the message carries. A chat of
     // text gives none, which is how the program remains today, and only the newest message of
     // the user is checked.
@@ -15700,6 +16805,8 @@ mod tests {
             assert_eq!(frame["tool_previews"], json!([]));
             assert_eq!(frame["messages"][2]["activity"]["head"], "Read test.txt");
             assert_eq!(frame["messages"][4]["activity"]["head"], "Ran xxd test.txt");
+            assert_eq!(frame["messages"][3]["answer_head"], "Ran a command");
+            assert_eq!(frame["messages"][5]["answer_head"], "Ran a command");
         };
         assert_finished(&finished);
         let mut reopened = state.snap();
@@ -15711,6 +16818,38 @@ mod tests {
         if let Some(path) = std::env::var_os("AN_CORPORATE_FRAMES") {
             std::fs::write(path, json!([streaming, running, finished, reopened]).to_string()).unwrap();
         }
+    }
+
+    #[test]
+    fn corporate_thought_boundaries_survive_a_saved_and_resumed_answer() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config {
+            chat_display: String::from(config::CORPORATE_DISPLAY),
+            ..Config::default()
+        });
+        open_a_chat(&engine);
+        let mut state = engine.state.lock().unwrap();
+        let chat = state.open_id();
+        let first = "I checked 🧪.";
+        let last = " The results are ready.";
+        let body = format!("{first}{last}");
+        let offsets = vec![0, first.encode_utf16().count()];
+        state.live_mut(&chat).live_thought_offsets = offsets.clone();
+        let live = crate::web::state(&state.snap(), None);
+        assert_eq!(live["thought_offsets"], json!(offsets));
+
+        state.push_message_in(&chat, "Assistant", &body, "two thoughts", 2000, false);
+        let id = state.chat_of(&chat).unwrap().messages.last().unwrap().id.clone();
+        assert!(state.live_ref(&chat).live_thought_offsets.is_empty());
+        let saved = state.store.load_chat(&chat).unwrap();
+        assert_eq!(saved.messages.last().unwrap().thought_offsets, offsets);
+
+        state.live_mut(&chat).live_thought_offsets = vec![0];
+        assert!(state.append_resumed(&chat, &id, " One more result.", "another thought", 1000));
+        let resumed = crate::web::state(&state.snap(), None);
+        assert_eq!(resumed["messages"].as_array().unwrap().last().unwrap()["thought_offsets"],
+            json!([0, first.encode_utf16().count(), body.encode_utf16().count()]));
     }
 
     #[test]
@@ -16979,7 +18118,7 @@ mod tests {
         // as it is now, with nothing added to it.
         let stood = state.build_history();
         assert_eq!(
-            go_on_words(&state, ""),
+            go_on_words(&state, &state.open_id(), ""),
             stood,
             "text was added to a conversation that ends on a question already"
         );
@@ -17001,7 +18140,7 @@ mod tests {
             "the result of the run was not last: {}",
             debt
         );
-        let history = go_on_words(&state, CONTINUE_PROMPT);
+        let history = go_on_words(&state, &state.open_id(), CONTINUE_PROMPT);
         let items = undated(&history);
         let last = items.last().expect("a conversation the request was given");
         assert_eq!(last["role"], json!("user"), "the ask did not end on the user");
@@ -17039,6 +18178,59 @@ mod tests {
                 .any(|message| message.body.contains(CONTINUE_PROMPT)),
             "the word of the program was written into the chat"
         );
+    }
+
+    #[test]
+    fn a_new_chats_first_request_uses_its_own_history() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let mut state = engine.state.lock().unwrap();
+        state.start_chat();
+        let fresh = state.open_id();
+        add_message(&mut state, "You", "hello");
+
+        // The worker can send the fresh chat's request while the sidebar has
+        // another chat open, for example when the model is still loading.
+        state.start_chat();
+        let previous = state.open_id();
+        add_message(&mut state, "You", "the first prompt of the other chat");
+        add_message(&mut state, "Assistant", "the answer");
+        let mark = state.begin_summary();
+        state.finish_summary(&mark, "The parser was updated.", 3000, 300, "");
+
+        let history = go_on_words(&state, &fresh, "");
+        assert_eq!(
+            undated(&history),
+            vec![json!({ "role": "user", "content": "hello" })]
+        );
+        assert!(!history.to_string().contains("handoff summary"));
+
+        state.current = Some(fresh);
+        let history = go_on_words(&state, &previous, "");
+        let messages = undated(&history);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1]["content"], handoff_block("The parser was updated."));
+    }
+
+    #[test]
+    fn a_handoff_cannot_replace_only_the_first_prompt() {
+        let _guard = config::test_turn();
+        setup();
+        let engine = Engine::start(Config::default());
+        let chat = {
+            let mut state = engine.state.lock().unwrap();
+            state.start_chat();
+            add_message(&mut state, "You", "hello");
+            state.set_status("Ready");
+            state.open_id()
+        };
+        let server = Arc::new(Mutex::new(None));
+        let cancel = Arc::new(AtomicBool::new(false));
+        assert!(!run_handoff(&engine.state, &server, &cancel, &chat));
+        let state = engine.state.lock().unwrap();
+        assert_eq!(state.status, "Ready");
+        assert_eq!(state.chat_of(&chat).unwrap().messages.len(), 1);
     }
 
     // A chat that was cut for a handoff summary and never got one does not go on asking the
@@ -17143,7 +18335,7 @@ mod tests {
         );
         // The word of the program rides on the request and is never written into the chat, for
         // the user never wrote it and has nothing to read where it is.
-        let asked = undated(&go_on_words(&state, EMPTY_TURN_WORDS));
+        let asked = undated(&go_on_words(&state, &state.open_id(), EMPTY_TURN_WORDS));
         let last = asked.last().expect("the ask is not empty");
         assert_eq!(last["role"], json!("user"));
         assert_eq!(last["content"].as_str().expect("words"), EMPTY_TURN_WORDS);
@@ -17270,6 +18462,7 @@ mod tests {
     // The conversation without the lines of the day and the clock time, so a test about another rule
     // counts only the text of the user and the model.
     fn undated(history: &Value) -> Vec<Value> {
+        let context_guidance = compaction_words();
         history
             .as_array()
             .expect("a list of the conversation")
@@ -17280,7 +18473,7 @@ mod tests {
                 // text, not conversation text.
                 !said.starts_with(DATE_HEAD)
                     && !said.starts_with("You may put colour on a few words")
-                    && !said.starts_with("The context of this conversation stays open")
+                    && said != context_guidance
             })
             .cloned()
             .collect()

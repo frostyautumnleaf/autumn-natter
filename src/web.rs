@@ -54,8 +54,12 @@ fn tool_activity(m: &store::Message, saved: Option<&WorkBlock>, active: bool) ->
 // The state as JSON. The page sends the number it already has (since). When nothing changed,
 // the answer stays small.
 pub fn state(snap: &Snap, since: Option<u64>) -> Value {
-    if since == Some(snap.rev) {
-        return json!({ "unchanged": true, "rev": snap.rev });
+    // Browser tool actions are completed by the visible page. Fold its small session revision
+    // into the poll token so a pending action reaches that page even when chat text is unchanged.
+    let rev = snap.rev.rotate_left(17)
+        ^ crate::agentic::browser_revision(&snap.chat_id);
+    if since == Some(rev) {
+        return json!({ "unchanged": true, "rev": rev });
     }
     let models: Vec<Value> = snap
         .models
@@ -117,7 +121,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             }
         }
     }
-    let mut answer_tools = Vec::new();
+    let mut activity_tools = Vec::new();
     let messages: Vec<Value> = snap
         .messages
         .iter()
@@ -127,13 +131,14 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 && !matches!(m.tool_name.as_str(), corporate::NAME | corporate::FINISH_NAME))
                 .then(|| tool_activity(m, work.get(m.id.as_str()).copied(), snap.generating));
             if let Some(block) = &activity {
-                answer_tools.push(block.clone());
+                activity_tools.push(block.clone());
             }
-            let ends_answer = !snap.messages.get(i + 1)
-                .is_some_and(|next| matches!(next.role.as_str(), "Assistant" | "Tool"));
-            let summary = if ends_answer && !answer_tools.is_empty() {
-                let head = corporate::head_after(&answer_tools);
-                answer_tools.clear();
+            let ends_activity = (m.role == "Assistant" && !m.body.trim().is_empty())
+                || !snap.messages.get(i + 1)
+                    .is_some_and(|next| matches!(next.role.as_str(), "Assistant" | "Tool"));
+            let summary = if ends_activity && !activity_tools.is_empty() {
+                let head = corporate::head_after(&activity_tools);
+                activity_tools.clear();
                 Some(head)
             } else {
                 None
@@ -164,6 +169,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
                 "reasoning": m.reasoning,
                 // How long that thinking took, in milliseconds.
                 "reasoning_ms": m.reasoning_ms,
+                "thought_offsets": &m.thought_offsets,
                 // Tool outcomes and the current card title in corporate display.
                 "activity": activity,
                 "answer_head": summary,
@@ -257,7 +263,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         })
         .collect();
     json!({
-        "rev": snap.rev,
+        "rev": rev,
         "unchanged": false,
         "model": {
             "id": snap.model_id,
@@ -279,7 +285,23 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
             // that a plan was let go and may still be read.
             "planning": snap.planning,
             "planned": snap.planned,
+            "goal": snap.goal.as_ref().map(|request| {
+                let elapsed = if snap.goal_started > 0 {
+                    (store::now_secs() - snap.goal_started).max(0)
+                } else {
+                    0
+                };
+                json!({
+                    "request": request,
+                    "started": snap.goal_started,
+                    "elapsed": elapsed,
+                    "paused": snap.goal_paused,
+                })
+            }),
         },
+        // Browser tabs belong to the chat, and the Agentic browser panel follows the same
+        // per-chat session as the page reader tool.
+        "browser": crate::agentic::browser_state(&snap.chat_id),
         // The commands a user may write in the chat composer. The list of them pops up when the
         // marker of a command is typed, and each carries what it is for.
         "commands": planning::list(),
@@ -382,6 +404,7 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "reasoning": snap.live_reasoning,
         "reasoning_ms": snap.live_thought_ms,
         "reasoning_done": snap.live_thought_done,
+        "thought_offsets": &snap.live_thought_offsets,
         // How far the server is with the text it was sent. The meter above the chat composer is
         // made of these three: the number, whether it remains, and what the program is working
         // on. The page puts the text of the last one together, as it does for the names of the
@@ -431,6 +454,10 @@ pub fn state(snap: &Snap, since: Option<u64>) -> Value {
         "working": snap.working,
         "busy": snap.busy,
         "code": snap.code_enabled,
+        "computer_use_available": snap.computer_use_available,
+        "computer_workspace_available": snap.computer_use_available && cfg!(target_os = "linux"),
+        "computer_target": snap.tool_switches.computer_target,
+        "computer_cursor_shared": snap.computer_use_available && computer_cursor_shared(),
         // The lines of the drop-down of the badge of the tools. The badge itself is the switch
         // over all of them, so a tool that is switched on here is proposed only while the badge
         // is on. The map is made from the same list the window of the program reads, so a line
@@ -549,7 +576,21 @@ fn tool_switches_value(switches: &store::ToolSwitches) -> Value {
     for (part, on) in switches.words() {
         held.insert(part.to_string(), json!(on));
     }
+    for (part, on) in switches.agentic_words() {
+        held.insert(part.to_string(), json!(on));
+    }
     Value::Object(held)
+}
+
+fn computer_cursor_shared() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::desktop::is_wayland()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
 }
 
 // Part of the context meter, between 0 and 1.
@@ -750,12 +791,7 @@ pub fn preview_line(engine: &crate::engine::Engine, id: &str, settings: Value) -
     };
     // The switches of the form win over the switches the model was saved with.
     let (_, devices) = engine.model_settings(id);
-    let mut cards = devices;
-    for (place, on) in held.gpu_enabled.iter().enumerate() {
-        if let Some(card) = cards.get_mut(place) {
-            card.enabled = *on;
-        }
-    }
+    let cards = crate::gpu::selected(&devices, &held.gpu_enabled);
     let mut notes = Vec::new();
     let args = llama::build_args(
         std::path::Path::new(""),
@@ -1056,6 +1092,34 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             engine.cancel();
             done()
         }
+        "/api/goal" | "goal" => match text_field(&value, "op").as_str() {
+            "clear" => {
+                if engine.clear_goal() {
+                    done()
+                } else {
+                    refused("There is no active goal to clear")
+                }
+            }
+            "edit" => match engine.edit_goal(&text_field(&value, "request")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            },
+            "pause" => {
+                if engine.set_goal_paused(true) {
+                    done()
+                } else {
+                    refused("There is no active goal to pause")
+                }
+            }
+            "resume" => {
+                if engine.set_goal_paused(false) {
+                    done()
+                } else {
+                    refused("There is no active goal to resume")
+                }
+            }
+            _ => refused("Choose whether to clear, edit, pause or resume the goal"),
+        },
         // The user answered the question the model put with the tool of that name. The id is
         // the one the request carried, so an answer that comes late -- after the question was
         // given up, or after another answer took it -- does nothing at all.
@@ -1167,6 +1231,59 @@ pub fn action(engine: &crate::engine::Engine, path: &str, body: &str) -> Value {
             }
             engine.set_tool_switch(&part, flag(&value, "on"));
             done()
+        }
+        "/api/computer_target" | "computer_target" => {
+            let target = match text_field(&value, "target").as_str() {
+                "desktop" => store::ComputerTarget::Desktop,
+                "workspace" => store::ComputerTarget::Workspace,
+                _ => return refused("Choose Real desktop or Private workspace."),
+            };
+            if engine.set_computer_target(target) {
+                done()
+            } else {
+                refused("That computer use target is unavailable.")
+            }
+        }
+        "/api/browser_tab" | "browser_tab" => {
+            let Some(tab) = value.get("tab").and_then(Value::as_u64) else {
+                return refused("Choose a browser tab number.");
+            };
+            if engine.select_browser_tab(tab) {
+                done()
+            } else {
+                refused("That browser tab is no longer available in this chat.")
+            }
+        }
+        "/api/browser_open" | "browser_open" => {
+            let url = text_field(&value, "url");
+            match engine.open_browser_page(&url, flag(&value, "new_tab")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_history_step" | "browser_history_step" => {
+            match engine.move_browser_history(&text_field(&value, "action")) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_close_tab" | "browser_close_tab" => {
+            let Some(tab) = value.get("tab").and_then(Value::as_u64) else {
+                return refused("Choose a browser tab number.");
+            };
+            match engine.close_browser_tab(tab) {
+                Ok(()) => done(),
+                Err(problem) => refused(&problem),
+            }
+        }
+        "/api/browser_action_result" | "browser_action_result" => {
+            let id = text_field(&value, "id");
+            let result = value.get("result").cloned().unwrap_or(Value::Null);
+            if !id.is_empty() && engine.resolve_browser_action(&id, result) {
+                done()
+            } else {
+                refused("That browser action is no longer waiting for a result.")
+            }
         }
         "/api/search" | "search" => {
             engine.set_search(flag(&value, "on"));
@@ -1430,6 +1547,53 @@ fn flag(value: &Value, key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_computer_target_is_chosen_separately_from_enabling_computer_use() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let mut engine = crate::engine::Engine::start(Config::default());
+        engine.new_chat();
+        let page = || state(&engine.snapshot(), None);
+        assert_eq!(page()["computer_target"], "desktop");
+        assert_eq!(page()["computer_workspace_available"], true);
+        let result = action(&engine, "/api/computer_target", r#"{"target":"workspace"}"#);
+        assert_eq!(result["ok"], true);
+        assert_eq!(page()["computer_target"], "workspace");
+        assert_eq!(page()["tool_switches"]["computer_use"], false);
+        let tools = engine.snapshot().tool_switches;
+        let saved: store::ToolSwitches = serde_json::from_value(json!(tools)).unwrap();
+        assert_eq!(saved.computer_target, store::ComputerTarget::Workspace);
+        action(&engine, "/api/computer_target", r#"{"target":"desktop"}"#);
+        assert_eq!(page()["computer_target"], "desktop");
+
+        engine.set_computer_use_available(false);
+        let result = action(&engine, "/api/computer_target", r#"{"target":"workspace"}"#);
+        assert_eq!(result["ok"], false);
+        assert_eq!(state(&engine.snapshot(), None)["computer_workspace_available"], false);
+    }
+
+    #[test]
+    fn the_page_receives_the_active_goal_pause_state_and_elapsed_time() {
+        let _guard = config::test_turn();
+        config::set_data_dir(std::path::PathBuf::from("uidata/web-tests"));
+        let _ = config::ensure_dirs();
+        let engine = crate::engine::Engine::start(Config::default());
+        let mut snap = engine.snapshot();
+        snap.goal = Some(String::from("Finish and review the draft"));
+        snap.goal_started = store::now_secs() - 42;
+        snap.goal_paused = true;
+
+        let goal = state(&snap, None)["chat"]["goal"].clone();
+        assert_eq!(
+            goal["request"].as_str(),
+            Some("Finish and review the draft")
+        );
+        assert_eq!(goal["paused"].as_bool(), Some(true));
+        assert!(goal["elapsed"].as_i64().unwrap_or_default() >= 42);
+    }
 
     // Every line of the drop-down of the badge of the tools stands in the state the page reads,
     // and the state says the same of each as the switch of the tools says. The list is taken from

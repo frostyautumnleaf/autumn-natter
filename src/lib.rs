@@ -18,12 +18,18 @@
 // limit is raised for the crate so the state can grow without the compiler stopping over it.
 #![recursion_limit = "256"]
 
+pub mod agentic;
 pub mod askuser;
 pub mod attach;
 pub mod config;
 pub mod contexts;
 pub mod corporate;
 pub mod db;
+#[cfg(target_os = "linux")]
+mod agent_pointer;
+#[cfg(target_os = "linux")]
+mod wayland_workspace;
+pub mod desktop;
 pub mod documents;
 pub mod display;
 pub mod download;
@@ -31,6 +37,7 @@ pub mod editfile;
 pub mod embed;
 pub mod engine;
 pub mod gguf;
+pub mod goal;
 pub mod gpu;
 pub mod greet;
 pub mod infographic;
