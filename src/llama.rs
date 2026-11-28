@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1107,36 +1107,84 @@ pub fn slot_working(base_url: &str, slot: usize) -> Option<bool> {
     }
 }
 
-// The tokens of a set of texts, counted with the vocabulary of the model that is to be asked, in
-// the order they were given. The counting is done by `llama-tokenize` of the same build as the
-// server, which is what reads the words as the server reads them: it loads the vocabulary of the
-// model file and nothing else, so it costs no space on the card. The load of the vocabulary is
-// what the moment costs, and it is a moment of the clock for the whole set and not for each of
-// them: every text is given to a tool of its own at once, and the tools are waited for together.
-// Nothing is given back for a build with no tokenizer beside the server, which is how a server of
-// the user's own may stand; the caller takes nothing given back as a counting it has to do
-// without.
-pub fn token_count(llama_dir: &str, model: &str, text: &str) -> Option<usize> {
+// Drain the token listing while writing the input. Large inputs and vocabularies cannot
+// deadlock on the pipes or hold the turn indefinitely.
+pub fn token_count(llama_dir: &str, model: &str, text: &str, cancel: &AtomicBool) -> Option<u64> {
     let tool = crate::config::tokenize_in(Path::new(llama_dir))?;
     let mut child = Command::new(&tool)
         .arg("--model")
         .arg(model)
         .arg("--stdin")
+        .arg("--no-escape")
         .arg("--show-count")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.take()?.write_all(text.as_bytes()).ok()?;
-    let out = child.wait_with_output().ok()?;
-    let said = String::from_utf8_lossy(&out.stdout);
-    said.lines()
-        .rev()
-        .find_map(|one| one.trim_start().strip_prefix("Total number of tokens: "))?
-        .trim()
-        .parse::<usize>()
-        .ok()
+    let mut input = child.stdin.take()?;
+    let output = child.stdout.take()?;
+    std::thread::scope(|threads| {
+        let written = threads.spawn(move || input.write_all(text.as_bytes()));
+        let counted = threads.spawn(move || {
+            let mut reader = BufReader::new(output);
+            let mut line = Vec::new();
+            let mut count = None;
+            while reader.read_until(b'\n', &mut line).ok()? != 0 {
+                if let Some(number) = std::str::from_utf8(&line)
+                    .ok()
+                    .and_then(|line| line.trim().strip_prefix("Total number of tokens: "))
+                {
+                    count = number.parse().ok();
+                }
+                line.clear();
+            }
+            count
+        });
+        let until = Instant::now() + Duration::from_secs(15);
+        let success = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.success(),
+                Ok(None) if !cancel.load(Ordering::Relaxed) && Instant::now() < until => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break false;
+                }
+            }
+        };
+        let wrote = written.join().ok()?.is_ok();
+        let count = counted.join().ok()?;
+        if success && wrote {
+            count
+        } else {
+            None
+        }
+    })
+}
+
+// Use the running model's template and vocabulary to check the actual request. Neither
+// endpoint runs generation. Image tokens are accounted for by the caller.
+pub fn prompt_token_count(base_url: &str, body: &Value) -> Option<u64> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(5))
+        .build();
+    let render: Value = agent
+        .post(&format!("{base_url}/apply-template"))
+        .send_json(body.clone())
+        .ok()?
+        .into_json()
+        .ok()?;
+    let prompt = render["prompt"].as_str()?;
+    let counted: Value = agent
+        .post(&format!("{base_url}/tokenize"))
+        .send_json(json!({ "content": prompt, "add_special": true }))
+        .ok()?
+        .into_json()
+        .ok()?;
+    counted["tokens"].as_array().map(|tokens| tokens.len() as u64)
 }
 
 // One tool call the model requested.

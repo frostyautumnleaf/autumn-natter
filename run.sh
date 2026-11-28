@@ -116,10 +116,10 @@ if [ "$WITH_LLAMA" = 1 ]; then
   cmake -S "$LLAMA_SRC" -B "$LLAMA_SRC/build" -DCMAKE_BUILD_TYPE=Release -DGGML_CCACHE=OFF >/dev/null \
     || die "cmake configure failed"
   cmake --build "$LLAMA_SRC/build" -j "$(nproc 2>/dev/null || sysctl -n hw.ncpu)" \
-    --target llama-server >/dev/null \
+    --target llama-server llama-tokenize >/dev/null \
     || die "llama-server build failed. Build llama.cpp yourself and pass --llama-dir."
   LLAMA_DIR="$LLAMA_SRC/build/bin"
-  ok "built: $LLAMA_DIR/llama-server"
+  ok "built llama-server and llama-tokenize in $LLAMA_DIR"
 fi
 
 if [ -z "$LLAMA_DIR" ]; then
