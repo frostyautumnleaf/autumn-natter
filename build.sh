@@ -3,7 +3,7 @@
 # Autumn Natter - build script.
 #
 # Installs the Rust toolchain into this checkout (if needed) and builds the
-# program. On Linux, installs missing Wayland workspace utilities system-wide.
+# program. In a Linux Wayland session, installs missing workspace utilities system-wide.
 #
 #   ./build.sh              build the release binary
 #   ./build.sh --fast       build without LTO (much faster, larger binary)
@@ -46,9 +46,28 @@ Toolchain flags
     -h, --help                 this text
 
 The first run downloads a Rust toolchain and every crate, so it needs a network
-connection. Linux builds also install sway and grim if missing (may use sudo).
+connection. Builds in a Linux Wayland session also install missing sway and
+grim (may use sudo).
 Expect ./.local to reach about 4 GB once built.
 HELP
+}
+
+is_wayland_session() {
+  local session_type="${XDG_SESSION_TYPE:-}"
+  case "${session_type,,}" in
+    wayland) return 0 ;;
+    x11) return 1 ;;
+  esac
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    return 0
+  fi
+  # A shell can lose the display variables. Check its own session when logind is available.
+  if [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1; then
+    session_type="$(loginctl show-session "$XDG_SESSION_ID" --property=Type --value 2>/dev/null)" || return 1
+    [ "$session_type" = wayland ]
+  else
+    return 1
+  fi
 }
 
 install_workspace_tools() {
@@ -192,7 +211,7 @@ if [ "$OS" = Linux ]; then
     say "    Fedora:         sudo dnf install webkit2gtk4.1-devel openssl-devel libappindicator-gtk3-devel librsvg2-devel pkgconf-pkg-config"
     say "    Arch:           sudo pacman -S webkit2gtk-4.1 base-devel openssl libappindicator-gtk3 librsvg"
   fi
-  if [ "$MODE" = build ]; then
+  if [ "$MODE" = build ] && is_wayland_session; then
     install_workspace_tools
   fi
 fi

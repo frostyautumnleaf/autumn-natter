@@ -6,8 +6,8 @@
 #
 # git clone https://github.com/frostyautumnleaf/autumn-natter cd autumn-natter ./run.sh
 #
-# The toolchain and build output live in ./.local. On Linux, the build script installs missing
-# Wayland workspace utilities system-wide.
+# The toolchain and build output live in ./.local. In a Linux Wayland session, the build script
+# installs missing workspace utilities system-wide.
 #
 # Run ./run.sh --help for the flags.
 

@@ -80,7 +80,7 @@ Enable Computer use in the Agentic menu with a vision-enabled model. On Linux, t
 - **Real desktop** controls your open apps. X11 uses a separate Agent pointer. On Wayland, approve the desktop portal and share the monitors you want to use. Pointer actions move the system cursor.
 - **Private workspace** starts a separate Wayland display with an orange Agent pointer. Ask the model to launch a native Wayland app by executable name. Single-instance apps may need a separate profile. Switch targets to return to your desktop, or turn off Computer use to close the private workspace.
 
-`build.sh` installs missing `sway` and `grim` on Debian/Ubuntu, Fedora, and Arch for Private workspace. It may use `sudo`. For an offline build or plain `cargo build`, install the two packages separately if you want to use Private workspace.
+`build.sh` installs missing `sway` and `grim` on Debian/Ubuntu, Fedora, and Arch when run in a Wayland session. It may use `sudo`. For builds from X11 or a headless shell, offline builds, or plain `cargo build`, install the two packages separately if you want to use Private workspace.
 
 To build and run in one command:
 
